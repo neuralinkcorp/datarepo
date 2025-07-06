@@ -64,6 +64,7 @@ class DeltaCacheOptions:
 
 class DeltalakeTable(TableProtocol):
     """A table that is backed by a Delta Lake table."""
+
     def __init__(
         self,
         name: str,

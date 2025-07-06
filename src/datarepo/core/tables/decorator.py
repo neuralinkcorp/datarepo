@@ -90,6 +90,7 @@ def table(*args, **kwargs) -> Callable[[U], U] | Callable[[Any], Callable[[U], U
     Returns:
         Callable[[U], U] | Callable[[Any], Callable[[U], U]]: A decorator that wraps a function to create a table.
     """
+
     def wrapper(func):
         return FunctionTable(
             table_metadata=TableMetadata(

@@ -19,6 +19,7 @@ FilterOperator = Literal[
 
 class Filter(NamedTuple):
     """Filter represents a condition to be applied to a column in a table."""
+
     column: str
     operator: FilterOperator
     value: Any
