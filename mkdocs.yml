@@ -59,7 +59,7 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
-  
+  - pymdownx.snippets
 
 extra_css:
   - stylesheets/extra.css
@@ -71,6 +71,7 @@ site_dir: site
 nav:
   - Home: /
   - User Guide: user-guide.md
+  - API docs: api-docs.md
 
 hooks:
   - docs/hooks.py

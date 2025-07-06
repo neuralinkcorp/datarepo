@@ -50,6 +50,11 @@ class DeltaCacheOptions:
     file_cache_last_checkpoint_valid_duration: str | None = None
 
     def to_storage_options(self) -> dict[str, Any]:
+        """Convert the cache options to a dictionary of storage options.
+
+        Returns:
+            dict[str, Any]: A dictionary of storage options that can be used with DeltaTable.
+        """
         opts = {
             "file_cache_path": os.path.expanduser(self.file_cache_path),
         }
@@ -61,6 +66,8 @@ class DeltaCacheOptions:
 
 
 class DeltalakeTable(TableProtocol):
+    """A table that is backed by a Delta Lake table."""
+
     def __init__(
         self,
         name: str,
@@ -75,6 +82,21 @@ class DeltalakeTable(TableProtocol):
         stats_cols: list[str] | None = None,
         extra_cols: list[tuple[pl.Expr, str]] | None = None,
     ):
+        """Initialize the DeltalakeTable.
+
+        Args:
+            name (str): table name, used as the table identifier in the DeltaTable
+            uri (str): uri of the table, e.g. "s3://bucket/path/to/table"
+            schema (pa.Schema): schema of the table, used to define the table structure
+            description (str, optional): description of the table, used for documentation. Defaults to "".
+            docs_filters (list[Filter], optional): documentation filters, used to filter the table in the documentation. Defaults to [].
+            docs_columns (list[str] | None, optional): documentation columns, used to define the columns in the documentation. Defaults to None.
+            roapi_opts (RoapiOptions | None, optional): ROAPI options, used to configure the ROAPI for the table. Defaults to None.
+            unique_columns (list[str] | None, optional): unique columns in the table, used to optimize the read performance. Defaults to None.
+            table_metadata_args (dict[str, Any] | None, optional): table metadata arguments, used to configure the table metadata. Defaults to None.
+            stats_cols (list[str] | None, optional): statistics columns, used to define the columns that have statistics. Defaults to None.
+            extra_cols (list[tuple[pl.Expr, str]] | None, optional): extra columns to add to the table, where each tuple contains a Polars expression and its type annotation. Defaults to None.
+        """
         self.name = name
         self.uri = uri
         self.schema = schema
@@ -91,6 +113,11 @@ class DeltalakeTable(TableProtocol):
         )
 
     def get_schema(self) -> TableSchema:
+        """Generate and return the schema of the table, including partitions and columns.
+
+        Returns:
+            TableSchema: table schema containing partition and column information.
+        """
         dt = self.delta_table()
         schema = self.schema
         partition_cols = dt.metadata().partition_columns
@@ -142,6 +169,19 @@ class DeltalakeTable(TableProtocol):
         cache_options: DeltaCacheOptions | None = None,
         **kwargs: Any,
     ) -> NlkDataFrame:
+        """Fetch a dataframe from the Delta Lake table.
+
+        Args:
+            filters (DeltaInputFilters | None, optional): filters to apply to the table. Defaults to None.
+            columns (list[str] | None, optional): columns to select from the table. Defaults to None.
+            boto3_session (boto3.Session | None, optional): boto3 session to use for S3 access. Defaults to None.
+            endpoint_url (str | None, optional): endpoint URL for S3 access. Defaults to None.
+            timeout (str | None, optional): timeout for S3 access. Defaults to None.
+            cache_options (DeltaCacheOptions | None, optional): cache options for the Delta Lake table. Defaults to None.
+
+        Returns:
+            NlkDataFrame: a dataframe containing the data from the Delta Lake table, filtered and selected according to the provided parameters.
+        """
         storage_options = {
             "timeout": timeout or DEFAULT_TIMEOUT,
             **get_storage_options(
@@ -163,6 +203,16 @@ class DeltalakeTable(TableProtocol):
         filters: DeltaInputFilters | None = None,
         columns: list[str] | None = None,
     ) -> NlkDataFrame:
+        """Construct a dataframe from the Delta Lake table.
+
+        Args:
+            dt (DeltaTable): The DeltaTable object representing the Delta Lake table.
+            filters (DeltaInputFilters | None, optional): filters to apply to the table. Defaults to None.
+            columns (list[str] | None, optional): columns to select from the table. Defaults to None.
+
+        Returns:
+            NlkDataFrame: a dataframe containing the data from the Delta Lake table, filtered and selected according to the provided parameters.
+        """
         # Use schema defined on this table, the physical schema in deltalake metadata might be different
         schema = self.schema
 
@@ -240,6 +290,15 @@ class DeltalakeTable(TableProtocol):
     def delta_table(
         self, storage_options: dict[str, Any] | None = None, version: int | None = None
     ) -> DeltaTable:
+        """Get the DeltaTable object for this table.
+
+        Args:
+            storage_options (dict[str, Any] | None, optional): Storage options for the DeltaTable, such as S3 access credentials. Defaults to None.
+            version (int | None, optional): Version of the Delta table to read. If None, the latest version is used. Defaults to None.
+
+        Returns:
+            DeltaTable: The DeltaTable object representing the Delta Lake table.
+        """
         return DeltaTable(
             table_uri=self.uri, storage_options=storage_options, version=version
         )
@@ -290,6 +349,16 @@ def fetch_dfs_by_paths(
     schema: pa.Schema,
     storage_options: dict[str, Any] | None = None,
 ) -> pl.DataFrame:
+    """Fetch dataframes from a list of Parquet files using multithreading.
+
+    Args:
+        files (list[str]): List of file paths to read Parquet files from.
+        schema (pa.Schema): Schema to normalize the dataframes to.
+        storage_options (dict[str, Any] | None, optional): Storage options for reading the Parquet files, such as S3 access credentials. Defaults to None.
+
+    Returns:
+        pl.DataFrame: A Polars DataFrame containing the concatenated results of all Parquet files, normalized to the specified schema.
+    """
     with ThreadPoolExecutor() as executor:
         futures = [
             executor.submit(
@@ -310,6 +379,14 @@ def fetch_dfs_by_paths(
 
 
 def _empty_normalized_df(schema: pa.Schema) -> pl.DataFrame:
+    """Create an empty DataFrame with the specified schema.
+
+    Args:
+        schema (pa.Schema): The schema to use for the empty DataFrame.
+
+    Returns:
+        pl.DataFrame: An empty DataFrame with the specified schema.
+    """
     return _normalize_df(pl.DataFrame({col: [] for col in schema.names}), schema=schema)
 
 
@@ -318,10 +395,17 @@ def _normalize_df(
     schema: pa.Schema,
     columns: list[str] | None = None,
 ) -> pl.DataFrame:
-    """
-    Add missing columns, cast, and reorder dataframe columns to the specified schema's order.
+    """Add missing columns, cast, and reorder dataframe columns to the specified schema's order.
 
     If columns is provided, only those columns will be added.
+
+    Args:
+        df (pl.DataFrame): dataframe to normalize.
+        schema (pa.Schema): schema to normalize the dataframe to.
+        columns (list[str] | None, optional): List of columns to include in the normalized dataframe. If None, all columns from the schema are included. Defaults to None.
+
+    Returns:
+        pl.DataFrame: A DataFrame normalized to the specified schema, with missing columns added and columns reordered.
     """
     empty_frame = pl.from_arrow(schema.empty_table())
     if isinstance(empty_frame, pl.Series):
@@ -345,6 +429,15 @@ def _normalize_df(
 def datafusion_predicate_from_filters(
     schema: pa.Schema, filters: DeltaInputFilters | None
 ) -> str | None:
+    """Convert input filters to a SQL predicate string for use in Delta Lake queries.
+
+    Args:
+        schema (pa.Schema): The schema of the Delta Lake table, used to validate column names and types.
+        filters (DeltaInputFilters | None): The filters to apply to the Delta Lake table. This can be a string or a list of Filter objects.
+
+    Returns:
+        str | None: A SQL predicate string that can be used in Delta Lake queries, or None if no filters are provided.
+    """
     if not filters:
         return None
     elif isinstance(filters, str):

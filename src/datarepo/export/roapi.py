@@ -12,6 +12,16 @@ from datarepo.core.tables.util import (
 
 
 def export_to_roapi_table(name: str, table: TableProtocol) -> dict[str, Any] | None:
+    """Exports a table to a roapi table configuration.
+
+    Args:
+        name (str): name of the table, used as the key in the roapi config.
+        table (TableProtocol): table to export
+
+    Returns:
+        dict[str, Any] | None: A dictionary representing the roapi table configuration,
+        or None if the table is not supported for roapi export.
+    """
     if isinstance(table, ParquetTable):
         return _export_parquet_table(name, table)
     elif isinstance(table, DeltalakeTable):
@@ -45,6 +55,16 @@ def export_to_roapi_tables(catalog: Catalog) -> list[dict[str, Any]]:
 
 
 def _export_parquet_table(name: str, table: ParquetTable) -> dict[str, Any] | None:
+    """Exports a parquet table to a roapi table configuration.
+
+    Args:
+        name (str): name of the table, used as the key in the roapi config.
+        table (ParquetTable): table to export.
+
+    Returns:
+        dict[str, Any] | None: A dictionary representing the roapi table configuration,
+        or None if the table is not supported for roapi export.
+    """
     roapi_opts = table.table_metadata.roapi_opts or RoapiOptions()
 
     if roapi_opts.disable:
@@ -109,6 +129,16 @@ def _export_parquet_table(name: str, table: ParquetTable) -> dict[str, Any] | No
 
 
 def _export_deltalake_table(name: str, table: DeltalakeTable) -> dict[str, Any] | None:
+    """Exports a deltalake table to a roapi table configuration.
+
+    Args:
+        name (str): name of the table, used as the key in the roapi config.
+        table (DeltalakeTable): table to export.
+
+    Returns:
+        dict[str, Any] | None: A dictionary representing the roapi table configuration,
+        or None if the table is not supported for roapi export.
+    """
     roapi_opts = table.table_metadata.roapi_opts or DeltaRoapiOptions()
 
     if roapi_opts.disable:
@@ -129,6 +159,15 @@ def _export_deltalake_table(name: str, table: DeltalakeTable) -> dict[str, Any] 
 def _with_reload_interval(
     table_config: dict[str, Any], roapi_opts: RoapiOptions
 ) -> dict[str, Any]:
+    """Adds a reload interval to the table configuration if specified.
+
+    Args:
+        table_config (dict[str, Any]): table configuration to modify.
+        roapi_opts (RoapiOptions): options that may include a reload interval.
+
+    Returns:
+        dict[str, Any]: modified table configuration with reload interval if specified.
+    """
     if roapi_opts.reload_interval_seconds is not None:
         table_config["reload_interval"] = {
             "secs": roapi_opts.reload_interval_seconds,
@@ -138,6 +177,7 @@ def _with_reload_interval(
 
 
 def py_type_to_roapi(py_type: type) -> str:
+    """Maps Python types to Roapi data types."""
     return {
         int: "Int64",
         str: "Utf8",

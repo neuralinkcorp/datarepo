@@ -61,6 +61,15 @@ def get_storage_options(
     boto3_session: boto3.Session | None = None,
     endpoint_url: str | None = None,
 ) -> dict[str, str]:
+    """Set up storage options for Delta Lake or other S3-compatible storage.
+
+    Args:
+        boto3_session (boto3.Session | None, optional): boto3 session to use for credentials. Defaults to None.
+        endpoint_url (str | None, optional): endpoint URL for S3-compatible storage. Defaults to None.
+
+    Returns:
+        dict[str, str]: Storage options for Delta Lake or other S3-compatible storage.
+    """
     storage_options = {}
 
     if endpoint_url is not None:
@@ -87,6 +96,15 @@ def get_pyarrow_filesystem_args(
     boto3_session: boto3.Session | None = None,
     endpoint_url: str | None = None,
 ) -> dict[str, str]:
+    """Get the arguments for the PyArrow filesystem.
+
+    Args:
+        boto3_session (boto3.Session | None, optional): boto3 session to use for credentials. Defaults to None.
+        endpoint_url (str | None, optional): endpoint URL for S3-compatible storage. Defaults to None.
+
+    Returns:
+        dict[str, str]: Arguments for the PyArrow filesystem.
+    """
     pyarrow_filesystem_args = {}
 
     if endpoint_url is not None:
@@ -111,6 +129,16 @@ def get_pyarrow_filesystem_args(
 
 
 def filters_to_sql_predicate(schema: pa.Schema, filters: NormalizedFilters) -> str:
+    """Convert normalized filters to a SQL predicate string.
+
+    Args:
+        schema (pa.Schema): schema of the table, used to validate column names and types.
+        filters (NormalizedFilters): filters to convert. Each inner list represents a disjunction (OR) of filters,
+            and each filter in the inner list represents a conjunction (AND) of filters.
+
+    Returns:
+        str: SQL predicate string representing the filters.
+    """
     if not filters:
         return "true"
 
@@ -120,6 +148,15 @@ def filters_to_sql_predicate(schema: pa.Schema, filters: NormalizedFilters) -> s
 
 
 def filters_to_sql_conjunction(schema: pa.Schema, filters: list[Filter]) -> str:
+    """Convert a list of filters to a SQL conjunction string.
+
+    Args:
+        schema (pa.Schema): schema of the table, used to validate column names and types.
+        filters (list[Filter]): filters to convert. Each filter represents a condition on a column.
+
+    Returns:
+        str: _description_
+    """
     if not filters:
         return "true"
 
@@ -129,6 +166,19 @@ def filters_to_sql_conjunction(schema: pa.Schema, filters: list[Filter]) -> str:
 
 
 def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
+    """Convert a single filter to a SQL expression.
+
+    Args:
+        schema (pa.Schema): schema of the table, used to validate column names and types.
+        f (Filter): filter to convert. Represents a condition on a column.
+
+    Raises:
+        ValueError: If the filter's column is not in the schema or if the operator is invalid.
+        ValueError: If the filter's operator is not supported.
+
+    Returns:
+        str: SQL expression representing the filter.
+    """
     column = f.column
     if column not in schema.names:
         raise ValueError(f"Invalid column name {column}")
@@ -180,6 +230,15 @@ def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
 
 
 def value_to_sql_expr(value: Any, value_type: pa.DataType) -> str:
+    """Convert a value to a SQL expression string.
+
+    Args:
+        value (Any): value to convert.
+        value_type (pa.DataType): value type, used to determine how to format the value.
+
+    Returns:
+        str: SQL expression string representing the value.
+    """
     if isinstance(value, list | tuple):
         elements_str = ", ".join(
             value_to_sql_expr(element, value_type) for element in value
@@ -195,4 +254,5 @@ def value_to_sql_expr(value: Any, value_type: pa.DataType) -> str:
 
 
 def escape_str_for_sql(value: str) -> str:
+    """Escape a string for use in a SQL query."""
     return value.replace("'", "''")

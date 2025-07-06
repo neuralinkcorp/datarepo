@@ -14,11 +14,24 @@ U = TypeVar("U")
 
 
 class FunctionTable(TableProtocol):
+    """A table that is defined by a function."""
+
     def __init__(self, table_metadata: TableMetadata, func: Callable) -> None:
+        """Initialize the FunctionTable.
+
+        Args:
+            table_metadata (TableMetadata): The metadata for the table.
+            func (Callable): The function that defines the table.
+        """
         self.table_metadata = table_metadata
         self.func = func
 
     def __call__(self, *args: Any, **kwargs: dict[str, Any]) -> NlkDataFrame:
+        """Call the function and return the result as a NlkDataFrame.
+
+        Returns:
+            NlkDataFrame: The result of the function call in a form of NlkDataFrame.
+        """
         # Filter to only include kwargs that are in the function signature
         parameters = inspect.signature(self.func).parameters
         accepts_var_kwargs = any(
@@ -34,6 +47,11 @@ class FunctionTable(TableProtocol):
         return self.func(*args, **kwargs)
 
     def get_schema(self) -> TableSchema:
+        """Generate and return the schema of the table, including partitions and columns.
+
+        Returns:
+            TableSchema: The schema of the table, including partitions and columns.
+        """
         filters = self.table_metadata.docs_args.get("filters", [])
 
         # Infer partitions from filters
@@ -64,6 +82,20 @@ class FunctionTable(TableProtocol):
 
 
 def table(*args, **kwargs) -> Callable[[U], U] | Callable[[Any], Callable[[U], U]]:
+    """Decorator to define a table using a function.
+
+    Example uage:
+        ``` py
+        @table(description="This is a sample table.")
+        def my_table_function(param1, param2):
+            # Function logic to create a table
+            return NlkDataFrame(...)
+        ```
+
+    Returns:
+        Callable[[U], U] | Callable[[Any], Callable[[U], U]]: A decorator that wraps a function to create a table.
+    """
+
     def wrapper(func):
         return FunctionTable(
             table_metadata=TableMetadata(

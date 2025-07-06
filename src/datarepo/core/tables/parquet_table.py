@@ -30,6 +30,14 @@ from datarepo.core.tables.util import (
 
 
 def pl_all(exprs: Sequence[pl.Expr]) -> pl.Expr:
+    """Combine a sequence of polars expressions with logical AND.
+
+    Args:
+        exprs (Sequence[pl.Expr]): A sequence of polars expressions to combine.
+
+    Returns:
+        pl.Expr: A single polars expression that represents the logical AND of all input expressions.
+    """
     assert len(exprs) > 0
 
     result = exprs[0]
@@ -40,6 +48,14 @@ def pl_all(exprs: Sequence[pl.Expr]) -> pl.Expr:
 
 
 def pl_any(exprs: Sequence[pl.Expr]) -> pl.Expr:
+    """Combine a sequence of polars expressions with logical OR.
+
+    Args:
+        exprs (Sequence[pl.Expr]): A sequence of polars expressions to combine.
+
+    Returns:
+        pl.Expr: A single polars expression that represents the logical OR of all input expressions.
+    """
     assert len(exprs) > 0
 
     result = exprs[0]
@@ -50,6 +66,16 @@ def pl_any(exprs: Sequence[pl.Expr]) -> pl.Expr:
 
 
 def _filters_to_conjunction_expr(filters: list[Filter]) -> pl.Expr | None:
+    """For a list of filters, return a polars expression that represents
+    the conjunction (AND) of all filters.
+
+    Args:
+        filters (list[Filter]): A list of filters to combine.
+
+    Returns:
+        pl.Expr | None: A polars expression that represents the conjunction of all filters,
+        or None if the list is empty.
+    """
     if not filters:
         return None
 
@@ -61,6 +87,16 @@ def _filters_to_conjunction_expr(filters: list[Filter]) -> pl.Expr | None:
 
 
 def _filters_to_expr(filters: NormalizedFilters) -> pl.Expr | None:
+    """For a list of lists of filters, return a polars expression that represents
+    the disjunction (OR) of all conjunctions of filters.
+
+    Args:
+        filters (NormalizedFilters): A list of lists of filters, where each inner list represents a conjunction (AND) of filters.
+
+    Returns:
+        pl.Expr | None: A polars expression that represents the disjunction of all conjunctions of filters,
+        or None if there are no filters.
+    """
     conjunctions = [_filters_to_conjunction_expr(filter_set) for filter_set in filters]
     not_none_conjunctions = [c for c in conjunctions if c is not None]
     if not not_none_conjunctions:
@@ -70,6 +106,17 @@ def _filters_to_expr(filters: NormalizedFilters) -> pl.Expr | None:
 
 
 def _filter_to_expr(filter: Filter) -> pl.Expr:
+    """Convert a single filter to a polars expression.
+
+    Args:
+        filter (Filter): A filter object containing the column, operator, and value.
+
+    Raises:
+        ValueError: If the operator is not supported.
+
+    Returns:
+        pl.Expr: A polars expression that represents the filter condition.
+    """
     if filter.operator == "=":
         return pl.col(filter.column) == filter.value
     elif filter.operator == "!=":
@@ -103,6 +150,8 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
 
 
 class ParquetTable(TableProtocol):
+    """A table that is stored in Parquet format."""
+
     def __init__(
         self,
         name: str,
@@ -116,6 +165,32 @@ class ParquetTable(TableProtocol):
         parquet_file_name: str = "df.parquet",
         table_metadata_args: dict[str, Any] | None = None,
     ):
+        """Initialize the ParquetTable.
+
+        Args:
+            name (str): name of the table, used for documentation and metadata.
+            uri (str): uri of the table, typically an S3 bucket path.
+            partitioning (list[Partition]): partitioning scheme for the table.
+                This is a list of Partition objects, which define the columns and types used for partitioning
+            partitioning_scheme (PartitioningScheme, optional): scheme used for partitioning.
+                Defaults to PartitioningScheme.DIRECTORY.
+            description (str, optional): description of the table, used for documentation.
+                Defaults to "".
+            docs_filters (list[Filter], optional): documentation filters for the table.
+                These filters are used to generate documentation and are not applied to the data.
+                Defaults to [].
+            docs_columns (list[str] | None, optional): docsumentation columns for the table.
+                These columns are used to generate documentation and are not applied to the data.
+                Defaults to None.
+            roapi_opts (RoapiOptions | None, optional): Read-only API options for the table.
+                These options are used to configure the ROAPI endpoint for the table.
+                Defaults to None.
+            parquet_file_name (str, optional): parquet file name to use when building file fragments.
+            table_metadata_args (dict[str, Any] | None, optional): additional metadata arguments for the table.
+
+        Raises:
+            ValueError: if the partitioning_scheme is not a valid PartitioningScheme.
+        """
         if not isinstance(partitioning_scheme, PartitioningScheme):
             raise ValueError(f"Invalid partitioning scheme, got {partitioning_scheme}")
 
@@ -135,6 +210,11 @@ class ParquetTable(TableProtocol):
         self.parquet_file_name = parquet_file_name
 
     def get_schema(self) -> TableSchema:
+        """Generates the schema of the table, including partitions and columns.
+
+        Returns:
+            TableSchema: table schema containing partitions and columns.
+        """
         partitions = [
             TablePartition(
                 column_name=filter.column,
@@ -172,6 +252,17 @@ class ParquetTable(TableProtocol):
         endpoint_url: str | None = None,
         **kwargs: Any,
     ) -> NlkDataFrame:
+        """Fetches data from the Parquet table based on the provided filters and columns.
+
+        Args:
+            filters (InputFilters | None, optional): filters to apply to the data. Defaults to None.
+            columns (Optional[list[str]], optional): columns to select from the data. Defaults to None.
+            boto3_session (boto3.Session | None, optional): boto3 session to use for S3 access. Defaults to None.
+            endpoint_url (str | None, optional): endpoint URL for S3 access. Defaults to None.
+
+        Returns:
+            NlkDataFrame: A DataFrame containing the filtered data from the Parquet table.
+        """
         normalized_filters = normalize_filters(filters)
         (
             uri,

@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def export_table(name: str, table: TableProtocol):
+    """Export a table to a dictionary format suitable for web catalog generation.
+
+    Args:
+        name (str): name of the table, used as the key in the catalog.
+        table (TableProtocol): table to export.
+
+    Returns:
+        dict[str, Any]: A dictionary representing the table's metadata,
+        including its name, description, partitions, columns, and other relevant information.
+    """
     table_info = table.table_metadata
 
     schema = table.get_schema()
@@ -37,6 +47,15 @@ def export_table(name: str, table: TableProtocol):
 
 
 def export_database(name: str, database: Database):
+    """Export a database to a dictionary format suitable for web catalog generation.
+
+    Args:
+        name (str): name of the database, used as the key in the catalog.
+        database (Database): Database to export.
+
+    Returns:
+        dict[str, Any]: A dictionary representing the database's metadata,
+    """
     tables = []
 
     for key, table in sorted(database.get_tables().items()):
@@ -49,6 +68,16 @@ def export_database(name: str, database: Database):
 
 
 def export_catalog(name: str, catalog: Catalog):
+    """Export a catalog to a dictionary format suitable for web catalog generation.
+
+    Args:
+        name (str): name of the catalog, used as the key in the export.
+        catalog (Catalog): Catalog to export.
+
+    Returns:
+        dict[str, Any]: A dictionary representing the catalog's metadata,
+        including its name and a list of databases.
+    """
     return {
         "name": name,
         "databases": [export_database(key, catalog.db(key)) for key in catalog.dbs()],
@@ -56,6 +85,14 @@ def export_catalog(name: str, catalog: Catalog):
 
 
 def export_datarepo(catalogs: list[tuple[str, Catalog]]) -> dict:
+    """Export the datarepo catalogs to a dictionary format.
+
+    Args:
+        catalogs (list[tuple[str, Catalog]]): List of tuples containing catalog names and their corresponding Catalog objects.
+
+    Returns:
+        dict: A dictionary containing a list of exported catalogs, each represented as a dictionary.
+    """
     return {
         "catalogs": [export_catalog(name, catalog) for name, catalog in catalogs],
     }

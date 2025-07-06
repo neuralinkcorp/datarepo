@@ -37,6 +37,8 @@ class TableColumn(TypedDict):
 
 @dataclass
 class TableSchema:
+    """TableSchema represents the schema of a table, including partitions and columns."""
+
     partitions: list[TablePartition]
     columns: list[TableColumn]
 
