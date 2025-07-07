@@ -67,6 +67,22 @@ def export_database(name: str, database: Database):
     }
 
 
+def export_catalog_metadata(catalog: Catalog):
+    """Export catalog metadata to a dictionary format.
+
+    Args:
+        catalog (Catalog): Catalog to export metadata from.
+
+    Returns:
+        dict[str, Any]: A dictionary containing the catalog's metadata,
+        including JupyterHub URL if available.
+    """
+    metadata = catalog._metadata
+    return {
+        "jupyterhub_url": metadata.jupyterhub_url if metadata else None,
+    }
+
+
 def export_catalog(name: str, catalog: Catalog):
     """Export a catalog to a dictionary format suitable for web catalog generation.
 
@@ -80,6 +96,7 @@ def export_catalog(name: str, catalog: Catalog):
     """
     return {
         "name": name,
+        "metadata": export_catalog_metadata(catalog),
         "databases": [export_database(key, catalog.db(key)) for key in catalog.dbs()],
     }
 

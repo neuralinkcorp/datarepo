@@ -88,7 +88,15 @@ export default function RootPage () {
           <Flex flexGrow='1' py='2' justify='end' align='center'>
             <Button
               variant='soft'
-              onClick={() => window.open("")}
+              onClick={() => {
+                const catalog = datarepo.catalogs.find(c => c.name === catalogKey)
+                const jupyterhubUrl = catalog?.metadata?.jupyterhub_url
+                if (jupyterhubUrl) {
+                  window.open(jupyterhubUrl, '_blank')
+                } else {
+                  console.warn('No JupyterHub URL found for the selected catalog.')
+                }
+              }}
             >
               <ExternalLinkIcon /> Run on JupyterHub
             </Button>
