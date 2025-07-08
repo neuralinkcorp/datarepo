@@ -1,4 +1,4 @@
-from datarepo.core.catalog import Catalog, Database, ModuleDatabase
+from datarepo.core.catalog import Catalog, Database, ModuleDatabase, CatalogMetadata
 from datarepo.core.dataframe import NlkDataFrame
 from datarepo.core.tables import (
     DeltaCacheOptions,
@@ -18,6 +18,7 @@ __all__ = [
     "ParquetTable",
     "NlkDataFrame",
     "Catalog",
+    "CatalogMetadata",
     "table",
     "PartitioningScheme",
     "Partition",

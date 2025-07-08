@@ -1,3 +1,8 @@
-from datarepo.core.catalog.catalog import Catalog, Database, ModuleDatabase
+from datarepo.core.catalog.catalog import (
+    Catalog,
+    Database,
+    ModuleDatabase,
+    CatalogMetadata,
+)
 
-__all__ = ["Catalog", "Database", "ModuleDatabase"]
+__all__ = ["Catalog", "Database", "ModuleDatabase", "CatalogMetadata"]

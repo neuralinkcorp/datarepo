@@ -30,8 +30,13 @@ export interface ExportedDatabase {
   tables: ExportedTable[]
 }
 
+export interface ExportedCatalogMetadata {
+  jupyterhub_url?: string | null
+}
+
 export interface ExportedCatalog {
   name: string
+  metadata: ExportedCatalogMetadata | null
   databases: ExportedDatabase[]
 }
 
