@@ -470,6 +470,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#datarepo.core.catalog.CatalogMetadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      CatalogMetadata
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#datarepo.core.catalog.Database" class="md-nav__link">
     <span class="md-ellipsis">
       Database
@@ -872,15 +881,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
-<span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">193</span>
 <span class="normal">194</span>
 <span class="normal">195</span>
 <span class="normal">196</span>
@@ -922,16 +923,54 @@
 <span class="normal">232</span>
 <span class="normal">233</span>
 <span class="normal">234</span>
-<span class="normal">235</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Catalog</span><span class="p">:</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Catalog</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A catalog that manages multiple databases and provides access to their tables.&quot;&quot;&quot;</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dbs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Database</span><span class="p">]):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">dbs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Database</span><span class="p">],</span> <span class="n">metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">CatalogMetadata</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the Catalog.</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            ``` py</span>
+<span class="sd">            from datarepo.core import Catalog, CatalogMetadata</span>
+<span class="sd">            catalog = Catalog(</span>
+<span class="sd">                dbs={</span>
+<span class="sd">                    &quot;my_db&quot;: ModuleDatabase(my_database_module),</span>
+<span class="sd">                },</span>
+<span class="sd">                metadata=CatalogMetadata(jupyterhub_url=&quot;https://jupyterhub.example.com&quot;)</span>
+<span class="sd">            )</span>
+<span class="sd">            ```</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            dbs (dict[str, Database]): A dictionary of database names and their corresponding Database objects.</span>
+<span class="sd">            metadata (Optional[CatalogMetadata], optional): Metadata for the catalog. Defaults to None.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_dbs</span> <span class="o">=</span> <span class="n">dbs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_metadata</span> <span class="o">=</span> <span class="n">metadata</span> <span class="ow">or</span> <span class="n">CatalogMetadata</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_global_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">set_global_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">global_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -992,7 +1031,7 @@
 
 
 <h3 id="datarepo.core.catalog.Catalog.__init__" class="doc doc-heading">
-            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">dbs</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">dbs</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 <a href="#datarepo.core.catalog.Catalog.__init__" class="headerlink" title="Permanent link">&para;</a></h3>
 
@@ -1001,6 +1040,18 @@
 
         <p>Initialize the Catalog.</p>
 
+
+<details class="example-usage" open>
+  <summary>Example usage</summary>
+  <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Catalog</span><span class="p">,</span> <span class="n">CatalogMetadata</span>
+<span class="n">catalog</span> <span class="o">=</span> <span class="n">Catalog</span><span class="p">(</span>
+    <span class="n">dbs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;my_db&quot;</span><span class="p">:</span> <span class="n">ModuleDatabase</span><span class="p">(</span><span class="n">my_database_module</span><span class="p">),</span>
+    <span class="p">},</span>
+    <span class="n">metadata</span><span class="o">=</span><span class="n">CatalogMetadata</span><span class="p">(</span><span class="n">jupyterhub_url</span><span class="o">=</span><span class="s2">&quot;https://jupyterhub.example.com&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+</details>
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <table>
@@ -1029,26 +1080,77 @@
                 <em>required</em>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>metadata</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;CatalogMetadata&lt;/code&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;datarepo.core.catalog.catalog.CatalogMetadata&lt;/code&gt;)" href="#datarepo.core.catalog.CatalogMetadata">CatalogMetadata</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Metadata for the catalog. Defaults to None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dbs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Database</span><span class="p">]):</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">196</span>
+<span class="normal">197</span>
+<span class="normal">198</span>
+<span class="normal">199</span>
+<span class="normal">200</span>
+<span class="normal">201</span>
+<span class="normal">202</span>
+<span class="normal">203</span>
+<span class="normal">204</span>
+<span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">dbs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Database</span><span class="p">],</span> <span class="n">metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">CatalogMetadata</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the Catalog.</span>
+
+<span class="sd">    Example usage:</span>
+<span class="sd">        ``` py</span>
+<span class="sd">        from datarepo.core import Catalog, CatalogMetadata</span>
+<span class="sd">        catalog = Catalog(</span>
+<span class="sd">            dbs={</span>
+<span class="sd">                &quot;my_db&quot;: ModuleDatabase(my_database_module),</span>
+<span class="sd">            },</span>
+<span class="sd">            metadata=CatalogMetadata(jupyterhub_url=&quot;https://jupyterhub.example.com&quot;)</span>
+<span class="sd">        )</span>
+<span class="sd">        ```</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        dbs (dict[str, Database]): A dictionary of database names and their corresponding Database objects.</span>
+<span class="sd">        metadata (Optional[CatalogMetadata], optional): Metadata for the catalog. Defaults to None.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_dbs</span> <span class="o">=</span> <span class="n">dbs</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_metadata</span> <span class="o">=</span> <span class="n">metadata</span> <span class="ow">or</span> <span class="n">CatalogMetadata</span><span class="p">()</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_global_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -1149,29 +1251,29 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">205</span>
-<span class="normal">206</span>
-<span class="normal">207</span>
-<span class="normal">208</span>
-<span class="normal">209</span>
-<span class="normal">210</span>
-<span class="normal">211</span>
-<span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span>
-<span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span>
-<span class="normal">219</span>
-<span class="normal">220</span>
-<span class="normal">221</span>
-<span class="normal">222</span>
-<span class="normal">223</span>
-<span class="normal">224</span>
-<span class="normal">225</span>
-<span class="normal">226</span>
-<span class="normal">227</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">db</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Database</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">db</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Database</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a database from the catalog.</span>
 
 <span class="sd">    Args:</span>
@@ -1239,13 +1341,13 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">229</span>
-<span class="normal">230</span>
-<span class="normal">231</span>
-<span class="normal">232</span>
-<span class="normal">233</span>
-<span class="normal">234</span>
-<span class="normal">235</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">dbs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">dbs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a list of database names in the catalog.</span>
 
 <span class="sd">    Returns:</span>
@@ -1305,13 +1407,13 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">197</span>
-<span class="normal">198</span>
-<span class="normal">199</span>
-<span class="normal">200</span>
-<span class="normal">201</span>
-<span class="normal">202</span>
-<span class="normal">203</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_global_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">global_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span>
+<span class="normal">226</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_global_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">global_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Set global arguments for all database queries.</span>
 
 <span class="sd">    Args:</span>
@@ -1323,6 +1425,66 @@
     </div>
 
 </div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="datarepo.core.catalog.CatalogMetadata" class="doc doc-heading">
+            <code>CatalogMetadata</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#datarepo.core.catalog.CatalogMetadata" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+
+        <p>Metadata for catalog.</p>
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span>
+<span class="normal">189</span>
+<span class="normal">190</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CatalogMetadata</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Metadata for catalog.&quot;&quot;&quot;</span>
+
+    <span class="n">jupyterhub_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
 
 
 
@@ -1358,8 +1520,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 9</span>
-<span class="normal">10</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">10</span>
 <span class="normal">11</span>
 <span class="normal">12</span>
 <span class="normal">13</span>
@@ -1389,7 +1550,8 @@
 <span class="normal">37</span>
 <span class="normal">38</span>
 <span class="normal">39</span>
-<span class="normal">40</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Database</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="normal">40</span>
+<span class="normal">41</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Database</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A protocol for a database that provides access to tables.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">get_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TableProtocol</span><span class="p">]:</span>
@@ -1483,13 +1645,13 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">12</span>
-<span class="normal">13</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">13</span>
 <span class="normal">14</span>
 <span class="normal">15</span>
 <span class="normal">16</span>
 <span class="normal">17</span>
-<span class="normal">18</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TableProtocol</span><span class="p">]:</span>
+<span class="normal">18</span>
+<span class="normal">19</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TableProtocol</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a dictionary of tables in the database.</span>
 
 <span class="sd">    Args:</span>
@@ -1572,8 +1734,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">31</span>
-<span class="normal">32</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">32</span>
 <span class="normal">33</span>
 <span class="normal">34</span>
 <span class="normal">35</span>
@@ -1581,7 +1742,8 @@
 <span class="normal">37</span>
 <span class="normal">38</span>
 <span class="normal">39</span>
-<span class="normal">40</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
+<span class="normal">40</span>
+<span class="normal">41</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a table from the database.</span>
 
 <span class="sd">    Args:</span>
@@ -1667,8 +1829,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">20</span>
-<span class="normal">21</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">21</span>
 <span class="normal">22</span>
 <span class="normal">23</span>
 <span class="normal">24</span>
@@ -1676,7 +1837,8 @@
 <span class="normal">26</span>
 <span class="normal">27</span>
 <span class="normal">28</span>
-<span class="normal">29</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="normal">29</span>
+<span class="normal">30</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a list of table names in the database.</span>
 
 <span class="sd">    Args:</span>
@@ -1726,8 +1888,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 43</span>
-<span class="normal"> 44</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 44</span>
 <span class="normal"> 45</span>
 <span class="normal"> 46</span>
 <span class="normal"> 47</span>
@@ -1817,7 +1978,8 @@
 <span class="normal">131</span>
 <span class="normal">132</span>
 <span class="normal">133</span>
-<span class="normal">134</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ModuleDatabase</span><span class="p">(</span><span class="n">Database</span><span class="p">):</span>
+<span class="normal">134</span>
+<span class="normal">135</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ModuleDatabase</span><span class="p">(</span><span class="n">Database</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A database that is implemented as a Python module.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db</span><span class="p">:</span> <span class="n">ModuleType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -1978,8 +2140,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">46</span>
-<span class="normal">47</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">47</span>
 <span class="normal">48</span>
 <span class="normal">49</span>
 <span class="normal">50</span>
@@ -1990,7 +2151,8 @@
 <span class="normal">55</span>
 <span class="normal">56</span>
 <span class="normal">57</span>
-<span class="normal">58</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db</span><span class="p">:</span> <span class="n">ModuleType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="normal">58</span>
+<span class="normal">59</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db</span><span class="p">:</span> <span class="n">ModuleType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the ModuleDatabase.</span>
 
 <span class="sd">    Example usage:</span>
@@ -2086,8 +2248,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">64</span>
-<span class="normal">65</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">65</span>
 <span class="normal">66</span>
 <span class="normal">67</span>
 <span class="normal">68</span>
@@ -2114,7 +2275,8 @@
 <span class="normal">89</span>
 <span class="normal">90</span>
 <span class="normal">91</span>
-<span class="normal">92</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TableProtocol</span><span class="p">]:</span>
+<span class="normal">92</span>
+<span class="normal">93</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_tables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">show_deprecated</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">TableProtocol</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a dictionary of tables in the database.</span>
 
 <span class="sd">    Example usage:</span>
@@ -2249,8 +2411,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/catalog/catalog.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 94</span>
-<span class="normal"> 95</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 95</span>
 <span class="normal"> 96</span>
 <span class="normal"> 97</span>
 <span class="normal"> 98</span>
@@ -2274,7 +2435,8 @@
 <span class="normal">116</span>
 <span class="normal">117</span>
 <span class="normal">118</span>
-<span class="normal">119</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
+<span class="normal">119</span>
+<span class="normal">120</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get a table from the database.</span>
 
 <span class="sd">    Example usage:</span>
