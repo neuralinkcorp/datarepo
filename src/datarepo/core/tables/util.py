@@ -2,11 +2,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, NamedTuple, Optional
 
+import logging
 import boto3
 import polars as pl
 import pyarrow as pa
 
 from datarepo.core.tables.filters import Filter, NormalizedFilters
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -85,6 +89,11 @@ def get_storage_options(
                 "aws_session_token": creds.token or "",
                 "aws_region": boto3_session.region_name,
             }
+        else:
+            logger.error(
+                "Boto3 session provided but no credentials found. "
+                "Storage options will not include AWS credentials."
+            )
 
     # Storage options passed to delta-rs need to be not null
     storage_options = {k: v for k, v in storage_options.items() if v}
