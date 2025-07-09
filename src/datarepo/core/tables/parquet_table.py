@@ -235,7 +235,7 @@ class ParquetTable(TableProtocol):
                 TableColumn(
                     column=key,
                     type=type.__str__(),
-                    readonly=True,
+                    readonly=False,
                     filter_only=False,
                     has_stats=False,
                 )
@@ -379,8 +379,7 @@ class ParquetTable(TableProtocol):
             ]
 
             if len(partition_filters) == 0:
-                # No filters for this partition, continue to next partition
-                continue
+                break
 
             # either 0 or multiple filters for this partition,
             # break and deal with the s3 list() query
@@ -397,7 +396,6 @@ class ParquetTable(TableProtocol):
             partition_filter = partition_filters[0]
 
             if partition_filter is None:
-                # No filter for this partition, continue to next partition
                 continue
 
             if self.partitioning_scheme == PartitioningScheme.DIRECTORY:

@@ -71,7 +71,7 @@ class FunctionTable(TableProtocol):
                 TableColumn(
                     column=key,
                     type=type.__str__(),
-                    readonly=True,
+                    readonly=False,
                     filter_only=False,
                     has_stats=False,
                 )

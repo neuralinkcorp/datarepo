@@ -138,7 +138,7 @@ class DeltalakeTable(TableProtocol):
             TableColumn(
                 column=name,
                 type=str(schema.field(name).type),
-                readonly=True,
+                readonly=False,
                 filter_only=False,
                 has_stats=name in partition_cols or name in self.stats_cols,
             )
