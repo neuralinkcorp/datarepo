@@ -2570,10 +2570,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">37</span>
-<span class="normal">38</span>
-<span class="normal">39</span>
-<span class="normal">40</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">40</span>
 <span class="normal">41</span>
 <span class="normal">42</span>
 <span class="normal">43</span>
@@ -2595,7 +2592,10 @@
 <span class="normal">59</span>
 <span class="normal">60</span>
 <span class="normal">61</span>
-<span class="normal">62</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="normal">62</span>
+<span class="normal">63</span>
+<span class="normal">64</span>
+<span class="normal">65</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">DeltaCacheOptions</span><span class="p">:</span>
     <span class="c1"># Path to the directory where files are cached. This can be the same for all tables</span>
     <span class="c1"># since the S3 table prefix is included in the cached paths.</span>
@@ -2675,10 +2675,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">49</span>
-<span class="normal">50</span>
-<span class="normal">51</span>
-<span class="normal">52</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">52</span>
 <span class="normal">53</span>
 <span class="normal">54</span>
 <span class="normal">55</span>
@@ -2688,7 +2685,10 @@
 <span class="normal">59</span>
 <span class="normal">60</span>
 <span class="normal">61</span>
-<span class="normal">62</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_storage_options</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="normal">62</span>
+<span class="normal">63</span>
+<span class="normal">64</span>
+<span class="normal">65</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_storage_options</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the cache options to a dictionary of storage options.</span>
 
 <span class="sd">    Returns:</span>
@@ -2742,10 +2742,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 65</span>
-<span class="normal"> 66</span>
-<span class="normal"> 67</span>
-<span class="normal"> 68</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 68</span>
 <span class="normal"> 69</span>
 <span class="normal"> 70</span>
 <span class="normal"> 71</span>
@@ -2968,7 +2965,16 @@
 <span class="normal">288</span>
 <span class="normal">289</span>
 <span class="normal">290</span>
-<span class="normal">291</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">DeltalakeTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
+<span class="normal">291</span>
+<span class="normal">292</span>
+<span class="normal">293</span>
+<span class="normal">294</span>
+<span class="normal">295</span>
+<span class="normal">296</span>
+<span class="normal">297</span>
+<span class="normal">298</span>
+<span class="normal">299</span>
+<span class="normal">300</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">DeltalakeTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A table that is backed by a Delta Lake table.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
@@ -3030,27 +3036,31 @@
             <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">Filter</span><span class="p">)</span>
         <span class="p">}</span>
         <span class="n">partitions</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;column_name&quot;</span><span class="p">:</span> <span class="n">col</span><span class="p">,</span>
-                <span class="s2">&quot;type_annotation&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
-                <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">filters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="p">),</span>
-            <span class="p">}</span>
+            <span class="n">TablePartition</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="n">col</span><span class="p">,</span>
+                <span class="n">type_annotation</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">filters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="p">),</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">partition_cols</span>
         <span class="p">]</span>
         <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
-                <span class="s2">&quot;has_stats&quot;</span><span class="p">:</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">partition_cols</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
-            <span class="p">}</span>
+            <span class="n">TableColumn</span><span class="p">(</span>
+                <span class="n">column</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+                <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+                <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">has_stats</span><span class="o">=</span><span class="n">name</span> <span class="ow">in</span> <span class="n">partition_cols</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">names</span>
         <span class="p">]</span>
         <span class="n">columns</span> <span class="o">+=</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">expr</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">output_name</span><span class="p">(),</span>
-                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">expr_type</span><span class="p">,</span>
-                <span class="s2">&quot;readonly&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-            <span class="p">}</span>
+            <span class="n">TableColumn</span><span class="p">(</span>
+                <span class="n">column</span><span class="o">=</span><span class="n">expr</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">output_name</span><span class="p">(),</span>
+                <span class="nb">type</span><span class="o">=</span><span class="n">expr_type</span><span class="p">,</span>
+                <span class="n">readonly</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">has_stats</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">expr</span><span class="p">,</span> <span class="n">expr_type</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_cols</span>
         <span class="p">]</span>
         <span class="k">return</span> <span class="n">TableSchema</span><span class="p">(</span>
@@ -3152,6 +3162,8 @@
         <span class="k">with</span> <span class="n">pl</span><span class="o">.</span><span class="n">StringCache</span><span class="p">():</span>
             <span class="k">if</span> <span class="n">batches</span><span class="p">:</span>
                 <span class="n">frame</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">batches</span><span class="p">,</span> <span class="n">rechunk</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">pl</span><span class="o">.</span><span class="n">Series</span><span class="p">):</span>
+                    <span class="n">frame</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
                 <span class="n">frame</span> <span class="o">=</span> <span class="n">_normalize_df</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">columns_to_read</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="c1"># If dataset is empty, the returned dataframe will have no columns</span>
@@ -3170,9 +3182,9 @@
                     <span class="k">if</span> <span class="n">curr_schema</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">==</span> <span class="n">pl</span><span class="o">.</span><span class="n">String</span>
                 <span class="p">}</span>
                 <span class="n">frame</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">frame</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">cat_schema</span><span class="p">)</span>
+                    <span class="n">frame</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">cat_schema</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
                     <span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">,</span> <span class="n">maintain_order</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-                    <span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">curr_schema</span><span class="p">)</span>
+                    <span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">curr_schema</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
                 <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
@@ -3365,14 +3377,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">155</span>
-<span class="normal">156</span>
-<span class="normal">157</span>
-<span class="normal">158</span>
-<span class="normal">159</span>
-<span class="normal">160</span>
-<span class="normal">161</span>
-<span class="normal">162</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">162</span>
 <span class="normal">163</span>
 <span class="normal">164</span>
 <span class="normal">165</span>
@@ -3401,7 +3406,14 @@
 <span class="normal">188</span>
 <span class="normal">189</span>
 <span class="normal">190</span>
-<span class="normal">191</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+<span class="normal">191</span>
+<span class="normal">192</span>
+<span class="normal">193</span>
+<span class="normal">194</span>
+<span class="normal">195</span>
+<span class="normal">196</span>
+<span class="normal">197</span>
+<span class="normal">198</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">filters</span><span class="p">:</span> <span class="n">DeltaInputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">columns</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3651,10 +3663,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 68</span>
-<span class="normal"> 69</span>
-<span class="normal"> 70</span>
-<span class="normal"> 71</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 71</span>
 <span class="normal"> 72</span>
 <span class="normal"> 73</span>
 <span class="normal"> 74</span>
@@ -3693,7 +3702,10 @@
 <span class="normal">107</span>
 <span class="normal">108</span>
 <span class="normal">109</span>
-<span class="normal">110</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal">110</span>
+<span class="normal">111</span>
+<span class="normal">112</span>
+<span class="normal">113</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -3844,14 +3856,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span>
-<span class="normal">196</span>
-<span class="normal">197</span>
-<span class="normal">198</span>
-<span class="normal">199</span>
-<span class="normal">200</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">200</span>
 <span class="normal">201</span>
 <span class="normal">202</span>
 <span class="normal">203</span>
@@ -3926,7 +3931,16 @@
 <span class="normal">272</span>
 <span class="normal">273</span>
 <span class="normal">274</span>
-<span class="normal">275</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">construct_df</span><span class="p">(</span>
+<span class="normal">275</span>
+<span class="normal">276</span>
+<span class="normal">277</span>
+<span class="normal">278</span>
+<span class="normal">279</span>
+<span class="normal">280</span>
+<span class="normal">281</span>
+<span class="normal">282</span>
+<span class="normal">283</span>
+<span class="normal">284</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">construct_df</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">dt</span><span class="p">:</span> <span class="n">DeltaTable</span><span class="p">,</span>
     <span class="n">filters</span><span class="p">:</span> <span class="n">DeltaInputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3982,6 +3996,8 @@
     <span class="k">with</span> <span class="n">pl</span><span class="o">.</span><span class="n">StringCache</span><span class="p">():</span>
         <span class="k">if</span> <span class="n">batches</span><span class="p">:</span>
             <span class="n">frame</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">from_arrow</span><span class="p">(</span><span class="n">batches</span><span class="p">,</span> <span class="n">rechunk</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">pl</span><span class="o">.</span><span class="n">Series</span><span class="p">):</span>
+                <span class="n">frame</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
             <span class="n">frame</span> <span class="o">=</span> <span class="n">_normalize_df</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">columns_to_read</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># If dataset is empty, the returned dataframe will have no columns</span>
@@ -4000,9 +4016,9 @@
                 <span class="k">if</span> <span class="n">curr_schema</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">==</span> <span class="n">pl</span><span class="o">.</span><span class="n">String</span>
             <span class="p">}</span>
             <span class="n">frame</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">frame</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">cat_schema</span><span class="p">)</span>
+                <span class="n">frame</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">cat_schema</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
                 <span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">,</span> <span class="n">maintain_order</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-                <span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">curr_schema</span><span class="p">)</span>
+                <span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">curr_schema</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
             <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
@@ -4101,21 +4117,21 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">277</span>
-<span class="normal">278</span>
-<span class="normal">279</span>
-<span class="normal">280</span>
-<span class="normal">281</span>
-<span class="normal">282</span>
-<span class="normal">283</span>
-<span class="normal">284</span>
-<span class="normal">285</span>
-<span class="normal">286</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">286</span>
 <span class="normal">287</span>
 <span class="normal">288</span>
 <span class="normal">289</span>
 <span class="normal">290</span>
-<span class="normal">291</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">delta_table</span><span class="p">(</span>
+<span class="normal">291</span>
+<span class="normal">292</span>
+<span class="normal">293</span>
+<span class="normal">294</span>
+<span class="normal">295</span>
+<span class="normal">296</span>
+<span class="normal">297</span>
+<span class="normal">298</span>
+<span class="normal">299</span>
+<span class="normal">300</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">delta_table</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span> <span class="n">storage_options</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DeltaTable</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the DeltaTable object for this table.</span>
@@ -4180,10 +4196,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/deltalake_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">112</span>
-<span class="normal">113</span>
-<span class="normal">114</span>
-<span class="normal">115</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">115</span>
 <span class="normal">116</span>
 <span class="normal">117</span>
 <span class="normal">118</span>
@@ -4221,7 +4234,14 @@
 <span class="normal">150</span>
 <span class="normal">151</span>
 <span class="normal">152</span>
-<span class="normal">153</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
+<span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
+<span class="normal">156</span>
+<span class="normal">157</span>
+<span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate and return the schema of the table, including partitions and columns.</span>
 
 <span class="sd">    Returns:</span>
@@ -4236,27 +4256,31 @@
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">Filter</span><span class="p">)</span>
     <span class="p">}</span>
     <span class="n">partitions</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="p">{</span>
-            <span class="s2">&quot;column_name&quot;</span><span class="p">:</span> <span class="n">col</span><span class="p">,</span>
-            <span class="s2">&quot;type_annotation&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
-            <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">filters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="p">),</span>
-        <span class="p">}</span>
+        <span class="n">TablePartition</span><span class="p">(</span>
+            <span class="n">column_name</span><span class="o">=</span><span class="n">col</span><span class="p">,</span>
+            <span class="n">type_annotation</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+            <span class="n">value</span><span class="o">=</span><span class="n">filters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">col</span><span class="p">),</span>
+        <span class="p">)</span>
         <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">partition_cols</span>
     <span class="p">]</span>
     <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="p">{</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
-            <span class="s2">&quot;has_stats&quot;</span><span class="p">:</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">partition_cols</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
-        <span class="p">}</span>
+        <span class="n">TableColumn</span><span class="p">(</span>
+            <span class="n">column</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+            <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+            <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">has_stats</span><span class="o">=</span><span class="n">name</span> <span class="ow">in</span> <span class="n">partition_cols</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">names</span>
     <span class="p">]</span>
     <span class="n">columns</span> <span class="o">+=</span> <span class="p">[</span>
-        <span class="p">{</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">expr</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">output_name</span><span class="p">(),</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">expr_type</span><span class="p">,</span>
-            <span class="s2">&quot;readonly&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-        <span class="p">}</span>
+        <span class="n">TableColumn</span><span class="p">(</span>
+            <span class="n">column</span><span class="o">=</span><span class="n">expr</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">output_name</span><span class="p">(),</span>
+            <span class="nb">type</span><span class="o">=</span><span class="n">expr_type</span><span class="p">,</span>
+            <span class="n">readonly</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">has_stats</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="k">for</span> <span class="n">expr</span><span class="p">,</span> <span class="n">expr_type</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_cols</span>
     <span class="p">]</span>
     <span class="k">return</span> <span class="n">TableSchema</span><span class="p">(</span>
@@ -4363,9 +4387,7 @@
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/tables/parquet_table.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">150</span>
-<span class="normal">151</span>
-<span class="normal">152</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">152</span>
 <span class="normal">153</span>
 <span class="normal">154</span>
 <span class="normal">155</span>
@@ -4623,7 +4645,21 @@
 <span class="normal">407</span>
 <span class="normal">408</span>
 <span class="normal">409</span>
-<span class="normal">410</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ParquetTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
+<span class="normal">410</span>
+<span class="normal">411</span>
+<span class="normal">412</span>
+<span class="normal">413</span>
+<span class="normal">414</span>
+<span class="normal">415</span>
+<span class="normal">416</span>
+<span class="normal">417</span>
+<span class="normal">418</span>
+<span class="normal">419</span>
+<span class="normal">420</span>
+<span class="normal">421</span>
+<span class="normal">422</span>
+<span class="normal">423</span>
+<span class="normal">424</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ParquetTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A table that is stored in Parquet format.&quot;&quot;&quot;</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
@@ -4690,11 +4726,11 @@
 <span class="sd">            TableSchema: table schema containing partitions and columns.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">partitions</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;column_name&quot;</span><span class="p">:</span> <span class="nb">filter</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
-                <span class="s2">&quot;type_annotation&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-                <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
-            <span class="p">}</span>
+            <span class="n">TablePartition</span><span class="p">(</span>
+                <span class="n">column_name</span><span class="o">=</span><span class="nb">filter</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
+                <span class="n">type_annotation</span><span class="o">=</span><span class="nb">type</span><span class="p">(</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+                <span class="n">value</span><span class="o">=</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="nb">filter</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span><span class="o">.</span><span class="n">docs_args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filters&quot;</span><span class="p">,</span> <span class="p">[])</span>
         <span class="p">]</span>
 
@@ -4702,14 +4738,17 @@
         <span class="n">docs_args</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span><span class="o">.</span><span class="n">docs_args</span><span class="p">}</span>
         <span class="n">docs_args</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;columns&quot;</span><span class="p">)</span>
 
-        <span class="n">columns</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">columns</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">if</span> <span class="n">docs_args</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">partitions</span><span class="p">:</span>
             <span class="n">table</span><span class="p">:</span> <span class="n">NlkDataFrame</span> <span class="o">=</span> <span class="bp">self</span><span class="p">(</span><span class="o">**</span><span class="n">docs_args</span><span class="p">)</span>
             <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
-                <span class="p">{</span>
-                    <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span>
-                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="o">.</span><span class="fm">__str__</span><span class="p">(),</span>
-                <span class="p">}</span>
+                <span class="n">TableColumn</span><span class="p">(</span>
+                    <span class="n">column</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>
+                    <span class="nb">type</span><span class="o">=</span><span class="nb">type</span><span class="o">.</span><span class="fm">__str__</span><span class="p">(),</span>
+                    <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="n">has_stats</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
                 <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="nb">type</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
             <span class="p">]</span>
 
@@ -4735,9 +4774,12 @@
 <span class="sd">            NlkDataFrame: A DataFrame containing the filtered data from the Parquet table.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">normalized_filters</span> <span class="o">=</span> <span class="n">normalize_filters</span><span class="p">(</span><span class="n">filters</span><span class="p">)</span>
-        <span class="n">uri</span><span class="p">,</span> <span class="n">remaining_partitions</span><span class="p">,</span> <span class="n">remaining_filters</span><span class="p">,</span> <span class="n">applied_filters</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_build_uri_from_filters</span><span class="p">(</span><span class="n">normalized_filters</span><span class="p">)</span>
-        <span class="p">)</span>
+        <span class="p">(</span>
+            <span class="n">uri</span><span class="p">,</span>
+            <span class="n">remaining_partitions</span><span class="p">,</span>
+            <span class="n">remaining_filters</span><span class="p">,</span>
+            <span class="n">applied_filters</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_uri_from_filters</span><span class="p">(</span><span class="n">normalized_filters</span><span class="p">)</span>
 
         <span class="n">storage_options</span> <span class="o">=</span> <span class="n">get_storage_options</span><span class="p">(</span>
             <span class="n">boto3_session</span><span class="o">=</span><span class="n">boto3_session</span><span class="p">,</span>
@@ -4846,6 +4888,9 @@
                 <span class="n">exactly_one_equality_filter</span><span class="p">(</span><span class="n">partition</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filters</span>
             <span class="p">]</span>
 
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">partition_filters</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">break</span>
+
             <span class="c1"># either 0 or multiple filters for this partition,</span>
             <span class="c1"># break and deal with the s3 list() query</span>
             <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">partition_filter</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">partition_filter</span> <span class="ow">in</span> <span class="n">partition_filters</span><span class="p">):</span>
@@ -4859,6 +4904,9 @@
                 <span class="k">break</span>
 
             <span class="n">partition_filter</span> <span class="o">=</span> <span class="n">partition_filters</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="n">partition_filter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
 
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">partitioning_scheme</span> <span class="o">==</span> <span class="n">PartitioningScheme</span><span class="o">.</span><span class="n">DIRECTORY</span><span class="p">:</span>
                 <span class="n">partition_component</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">partition_filter</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
@@ -5017,12 +5065,7 @@
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/parquet_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">242</span>
-<span class="normal">243</span>
-<span class="normal">244</span>
-<span class="normal">245</span>
-<span class="normal">246</span>
-<span class="normal">247</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">247</span>
 <span class="normal">248</span>
 <span class="normal">249</span>
 <span class="normal">250</span>
@@ -5080,7 +5123,15 @@
 <span class="normal">302</span>
 <span class="normal">303</span>
 <span class="normal">304</span>
-<span class="normal">305</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+<span class="normal">305</span>
+<span class="normal">306</span>
+<span class="normal">307</span>
+<span class="normal">308</span>
+<span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span>
+<span class="normal">312</span>
+<span class="normal">313</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">filters</span><span class="p">:</span> <span class="n">InputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -5100,9 +5151,12 @@
 <span class="sd">        NlkDataFrame: A DataFrame containing the filtered data from the Parquet table.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">normalized_filters</span> <span class="o">=</span> <span class="n">normalize_filters</span><span class="p">(</span><span class="n">filters</span><span class="p">)</span>
-    <span class="n">uri</span><span class="p">,</span> <span class="n">remaining_partitions</span><span class="p">,</span> <span class="n">remaining_filters</span><span class="p">,</span> <span class="n">applied_filters</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_build_uri_from_filters</span><span class="p">(</span><span class="n">normalized_filters</span><span class="p">)</span>
-    <span class="p">)</span>
+    <span class="p">(</span>
+        <span class="n">uri</span><span class="p">,</span>
+        <span class="n">remaining_partitions</span><span class="p">,</span>
+        <span class="n">remaining_filters</span><span class="p">,</span>
+        <span class="n">applied_filters</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_uri_from_filters</span><span class="p">(</span><span class="n">normalized_filters</span><span class="p">)</span>
 
     <span class="n">storage_options</span> <span class="o">=</span> <span class="n">get_storage_options</span><span class="p">(</span>
         <span class="n">boto3_session</span><span class="o">=</span><span class="n">boto3_session</span><span class="p">,</span>
@@ -5373,9 +5427,7 @@ Defaults to None.</p>
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/parquet_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">153</span>
-<span class="normal">154</span>
-<span class="normal">155</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">155</span>
 <span class="normal">156</span>
 <span class="normal">157</span>
 <span class="normal">158</span>
@@ -5428,7 +5480,9 @@ Defaults to None.</p>
 <span class="normal">205</span>
 <span class="normal">206</span>
 <span class="normal">207</span>
-<span class="normal">208</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -5508,15 +5562,7 @@ This will raise an error if the filter does not specify all partitions.</p>
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/parquet_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">307</span>
-<span class="normal">308</span>
-<span class="normal">309</span>
-<span class="normal">310</span>
-<span class="normal">311</span>
-<span class="normal">312</span>
-<span class="normal">313</span>
-<span class="normal">314</span>
-<span class="normal">315</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">315</span>
 <span class="normal">316</span>
 <span class="normal">317</span>
 <span class="normal">318</span>
@@ -5524,7 +5570,15 @@ This will raise an error if the filter does not specify all partitions.</p>
 <span class="normal">320</span>
 <span class="normal">321</span>
 <span class="normal">322</span>
-<span class="normal">323</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_file_fragment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Filter</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="normal">323</span>
+<span class="normal">324</span>
+<span class="normal">325</span>
+<span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">build_file_fragment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Filter</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Returns a file path from the base table URI with the given filters.</span>
 <span class="sd">    This will raise an error if the filter does not specify all partitions.</span>
@@ -5591,9 +5645,7 @@ This will raise an error if the filter does not specify all partitions.</p>
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/parquet_table.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">210</span>
-<span class="normal">211</span>
-<span class="normal">212</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">212</span>
 <span class="normal">213</span>
 <span class="normal">214</span>
 <span class="normal">215</span>
@@ -5621,18 +5673,23 @@ This will raise an error if the filter does not specify all partitions.</p>
 <span class="normal">237</span>
 <span class="normal">238</span>
 <span class="normal">239</span>
-<span class="normal">240</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Generates the schema of the table, including partitions and columns.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        TableSchema: table schema containing partitions and columns.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">partitions</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="p">{</span>
-            <span class="s2">&quot;column_name&quot;</span><span class="p">:</span> <span class="nb">filter</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
-            <span class="s2">&quot;type_annotation&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
-            <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
-        <span class="p">}</span>
+        <span class="n">TablePartition</span><span class="p">(</span>
+            <span class="n">column_name</span><span class="o">=</span><span class="nb">filter</span><span class="o">.</span><span class="n">column</span><span class="p">,</span>
+            <span class="n">type_annotation</span><span class="o">=</span><span class="nb">type</span><span class="p">(</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+            <span class="n">value</span><span class="o">=</span><span class="nb">filter</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="k">for</span> <span class="nb">filter</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span><span class="o">.</span><span class="n">docs_args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filters&quot;</span><span class="p">,</span> <span class="p">[])</span>
     <span class="p">]</span>
 
@@ -5640,14 +5697,17 @@ This will raise an error if the filter does not specify all partitions.</p>
     <span class="n">docs_args</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span><span class="o">.</span><span class="n">docs_args</span><span class="p">}</span>
     <span class="n">docs_args</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;columns&quot;</span><span class="p">)</span>
 
-    <span class="n">columns</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">columns</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="n">docs_args</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">partitions</span><span class="p">:</span>
         <span class="n">table</span><span class="p">:</span> <span class="n">NlkDataFrame</span> <span class="o">=</span> <span class="bp">self</span><span class="p">(</span><span class="o">**</span><span class="n">docs_args</span><span class="p">)</span>
         <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span>
-                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="nb">type</span><span class="o">.</span><span class="fm">__str__</span><span class="p">(),</span>
-            <span class="p">}</span>
+            <span class="n">TableColumn</span><span class="p">(</span>
+                <span class="n">column</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>
+                <span class="nb">type</span><span class="o">=</span><span class="nb">type</span><span class="o">.</span><span class="fm">__str__</span><span class="p">(),</span>
+                <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">has_stats</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="nb">type</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">]</span>
 
@@ -5694,16 +5754,16 @@ HIVE - e.g. s3://bucket/implant_id=5956/date=2024-03-24</p>
 
               <details class="quote">
                 <summary>Source code in <code>src/datarepo/core/tables/util.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">25</span>
-<span class="normal">26</span>
-<span class="normal">27</span>
-<span class="normal">28</span>
-<span class="normal">29</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">29</span>
 <span class="normal">30</span>
 <span class="normal">31</span>
 <span class="normal">32</span>
 <span class="normal">33</span>
-<span class="normal">34</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">PartitioningScheme</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="normal">34</span>
+<span class="normal">35</span>
+<span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">PartitioningScheme</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Defines the partitioning scheme for the table.</span>
 
@@ -6024,12 +6084,7 @@ HIVE - e.g. s3://bucket/implant_id=5956/date=2024-03-24</p>
 
             <details class="quote">
               <summary>Source code in <code>src/datarepo/core/tables/decorator.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 79</span>
-<span class="normal"> 80</span>
-<span class="normal"> 81</span>
-<span class="normal"> 82</span>
-<span class="normal"> 83</span>
-<span class="normal"> 84</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 84</span>
 <span class="normal"> 85</span>
 <span class="normal"> 86</span>
 <span class="normal"> 87</span>
@@ -6056,7 +6111,12 @@ HIVE - e.g. s3://bucket/implant_id=5956/date=2024-03-24</p>
 <span class="normal">108</span>
 <span class="normal">109</span>
 <span class="normal">110</span>
-<span class="normal">111</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">U</span><span class="p">],</span> <span class="n">U</span><span class="p">]</span> <span class="o">|</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Any</span><span class="p">],</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">U</span><span class="p">],</span> <span class="n">U</span><span class="p">]]:</span>
+<span class="normal">111</span>
+<span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span>
+<span class="normal">115</span>
+<span class="normal">116</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">U</span><span class="p">],</span> <span class="n">U</span><span class="p">]</span> <span class="o">|</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Any</span><span class="p">],</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">U</span><span class="p">],</span> <span class="n">U</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Decorator to define a table using a function.</span>
 
 <span class="sd">    Example uage:</span>
