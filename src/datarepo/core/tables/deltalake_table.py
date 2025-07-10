@@ -273,13 +273,9 @@ class DeltalakeTable(TableProtocol):
                     if curr_schema[col] == pl.String
                 }
                 frame = (
-                    frame.with_columns(
-                        [pl.col(col).cast(pl.Categorical) for col in cat_schema]
-                    )
+                    frame.cast(cat_schema)  # type: ignore[arg-type]
                     .unique(subset=self.unique_columns, maintain_order=True)
-                    .with_columns(
-                        [pl.col(col).cast(dtype) for col, dtype in curr_schema.items()]
-                    )
+                    .cast(curr_schema)  # type: ignore[arg-type]
                 )
 
         if columns:

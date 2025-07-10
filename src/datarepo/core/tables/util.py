@@ -129,6 +129,11 @@ def get_pyarrow_filesystem_args(
                 "session_token": creds.token or "",
                 "region": boto3_session.region_name,
             }
+        else:
+            logger.error(
+                "Boto3 session provided but no credentials found. "
+                "Storage options will not include AWS credentials."
+            )
 
     pyarrow_filesystem_args = {
         k: v for k, v in pyarrow_filesystem_args.items() if v is not None
