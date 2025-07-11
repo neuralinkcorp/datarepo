@@ -270,3 +270,30 @@ def value_to_sql_expr(value: Any, value_type: pa.DataType) -> str:
 def escape_str_for_sql(value: str) -> str:
     """Escape a string for use in a SQL query."""
     return value.replace("'", "''")
+
+
+def format_value_for_sql(value: Any) -> str:
+    """Format a value for use in a SQL query.
+
+    Args:
+        value: The value to format.
+
+    Returns:
+        A string representation of the value suitable for SQL.
+    """
+    if value is None:
+        return "NULL"
+    elif isinstance(value, str):
+        # Escape single quotes
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    elif isinstance(value, bool):
+        return "1" if value else "0"
+    elif isinstance(value, (int, float)):
+        return str(value)
+    elif isinstance(value, (list, tuple)):
+        return ", ".join(format_value_for_sql(v) for v in value)
+    else:
+        # For other types, convert to string and treat as string
+        escaped = str(value).replace("'", "''")
+        return f"'{escaped}'"
