@@ -5,6 +5,7 @@ from datarepo.core.tables.deltalake_table import (
 )
 from datarepo.core.tables.metadata import TableMetadata, TableProtocol, TableSchema
 from datarepo.core.tables.parquet_table import ParquetTable
+from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
 from datarepo.core.tables.util import (
     DeltaRoapiOptions,
     Filter,
@@ -26,4 +27,6 @@ __all__ = [
     "TableSchema",
     "DeltaRoapiOptions",
     "RoapiOptions",
+    "ClickHouseTable",
+    "ClickHouseTableConfig",
 ]

@@ -12,7 +12,6 @@ from datarepo.core.tables.filters import Filter, InputFilters, normalize_filters
 from datarepo.core.tables.metadata import (
     TableColumn,
     TableMetadata,
-    TablePartition,
     TableProtocol,
     TableSchema,
 )
@@ -35,6 +34,17 @@ class ClickHouseTableConfig:
     secure: bool = True
     verify: bool = True
     settings: Dict[str, Any] = field(default_factory=dict)
+
+    def get_uri(self) -> str:
+        """Construct the URI for the ClickHouse table.
+
+        Returns:
+            str: URI for the ClickHouse table.
+        """
+        # check if username and password are provided
+        if not self.username or not self.password:
+            return f"clickhouse://{self.host}:{self.port}/{self.database}"
+        return f"clickhouse://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
 class ClickHouseTable(TableProtocol):
@@ -109,7 +119,7 @@ class ClickHouseTable(TableProtocol):
         self.docs_filters = docs_filters or []
         self.docs_columns = docs_columns
         self.stats_cols = stats_cols or []
-        self.client = None
+        self.uri = config.get_uri()
 
         self.table_metadata = TableMetadata(
             table_type="CLICKHOUSE",
@@ -254,13 +264,10 @@ class ClickHouseTable(TableProtocol):
         """
         query = self._build_query(filters, columns)
 
-        # clickhouse connection uri
-        uri = f"clickhouse://{self.config.username}:{self.config.password}@{self.config.host}:{self.config.port}/{self.config.database}"
-
         # use polars read database_uri to read the result of the query
         df = pl.read_database_uri(
             query=query,
-            uri=uri,
+            uri=self.uri,
             engine="connectorx",
         )
 

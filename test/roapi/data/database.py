@@ -7,6 +7,8 @@ from datarepo.core import (
     ParquetTable,
     Partition,
     PartitioningScheme,
+    ClickHouseTable,
+    ClickHouseTableConfig,
     table,
 )
 from datarepo.core.tables.util import RoapiOptions
@@ -50,4 +52,16 @@ test_delta_table_override_name = DeltalakeTable(
     schema=pa.schema([]),
     uri="s3://bucket/data/",
     roapi_opts=RoapiOptions(override_name="new_name"),
+)
+
+test_clickhouse_table = ClickHouseTable(
+    name="test_clickhouse_table",
+    schema=pa.schema([]),
+    config=ClickHouseTableConfig(
+        host="localhost",
+        port=8443,
+        username="user",
+        password="password",
+        database="default"
+    )
 )

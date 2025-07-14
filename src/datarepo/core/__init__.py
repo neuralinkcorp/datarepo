@@ -9,6 +9,8 @@ from datarepo.core.tables import (
     PartitioningScheme,
     TableMetadata,
     TableProtocol,
+    ClickHouseTable,
+    ClickHouseTableConfig,
     table,
 )
 
@@ -25,4 +27,6 @@ __all__ = [
     "Filter",
     "TableMetadata",
     "TableProtocol",
+    "ClickHouseTable",
+    "ClickHouseTableConfig",
 ]

@@ -1,7 +1,7 @@
 import sys
 from typing import Any
 
-from datarepo.core import DeltalakeTable, ParquetTable
+from datarepo.core import DeltalakeTable, ParquetTable, ClickHouseTable
 from datarepo.core.catalog.catalog import Catalog
 from datarepo.core.tables.metadata import RoapiOptions, TableProtocol
 from datarepo.core.tables.util import (
@@ -26,6 +26,8 @@ def export_to_roapi_table(name: str, table: TableProtocol) -> dict[str, Any] | N
         return _export_parquet_table(name, table)
     elif isinstance(table, DeltalakeTable):
         return _export_deltalake_table(name, table)
+    elif isinstance(table, ClickHouseTable):
+        return _export_clickhouse_table(name, table)
     else:
         print(
             f"{name}: Only parquet and deltalake tables are supported for roapi export.",
@@ -150,6 +152,39 @@ def _export_deltalake_table(name: str, table: DeltalakeTable) -> dict[str, Any] 
         "option": {
             "format": "delta",
             "use_memory_table": roapi_opts.use_memory_table,
+        },
+    }
+
+    return _with_reload_interval(table_config, roapi_opts)
+
+
+def _export_clickhouse_table(
+    name: str, table: ClickHouseTable
+) -> dict[str, Any] | None:
+    """Exports a ClickHouse table to a ROAPI table configuration.
+
+    Args:
+        name (str): name of the table, used as the key in the ROAPI config.
+        table (ClickHouseTable): table to export.
+
+    Returns:
+        dict[str, Any] | None: A dictionary representing the ROAPI table configuration,
+        or None if the table is not supported for ROAPI export.
+    """
+    roapi_opts = table.table_metadata.roapi_opts or RoapiOptions()
+
+    if roapi_opts.disable:
+        return None
+
+    table_config = {
+        "name": roapi_opts.override_name or name,
+        "uri": table.uri,
+        "option": {
+            # based on https://roapi.github.io/docs/config/databases.html
+            # clickhouse should be supported by connectorx
+            "format": "clickhouse",
+            "use_memory_table": roapi_opts.use_memory_table,
+            "table": table.name,
         },
     }
 

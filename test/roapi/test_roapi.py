@@ -56,6 +56,15 @@ class TestRoapi(unittest.TestCase):
 
         assert result == [
             {
+                'name': 'database_test_clickhouse_table',
+                'option': {
+                    'format': 'clickhouse',
+                    'table': 'test_clickhouse_table',
+                    'use_memory_table': False,
+                },
+                'uri': 'clickhouse://user:password@localhost:8443/default',
+            },
+            {
                 "name": "database_test_delta_table",
                 "uri": "s3://bucket/data/",
                 "option": {"format": "delta", "use_memory_table": False},
