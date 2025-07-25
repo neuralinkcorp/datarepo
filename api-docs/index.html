@@ -599,6 +599,72 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTable" class="md-nav__link">
+    <span class="md-ellipsis">
+      ClickHouseTable
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ClickHouseTable">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTable.__call__" class="md-nav__link">
+    <span class="md-ellipsis">
+      __call__
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTable.__init__" class="md-nav__link">
+    <span class="md-ellipsis">
+      __init__
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTable.get_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      get_schema
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTableConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      ClickHouseTableConfig
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ClickHouseTableConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#datarepo.core.tables.ClickHouseTableConfig.get_uri" class="md-nav__link">
+    <span class="md-ellipsis">
+      get_uri
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#datarepo.core.tables.DeltaCacheOptions" class="md-nav__link">
     <span class="md-ellipsis">
       DeltaCacheOptions
@@ -2543,6 +2609,1336 @@
 
 
 
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="datarepo.core.tables.ClickHouseTable" class="doc doc-heading">
+            <code>ClickHouseTable</code>
+
+
+<a href="#datarepo.core.tables.ClickHouseTable" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code&gt;TableProtocol&lt;/code&gt; (&lt;code&gt;datarepo.core.tables.metadata.TableProtocol&lt;/code&gt;)" href="#datarepo.core.tables.TableProtocol">TableProtocol</a></code></p>
+
+
+        <p>A table implementation that reads data from ClickHouse.</p>
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 50</span>
+<span class="normal"> 51</span>
+<span class="normal"> 52</span>
+<span class="normal"> 53</span>
+<span class="normal"> 54</span>
+<span class="normal"> 55</span>
+<span class="normal"> 56</span>
+<span class="normal"> 57</span>
+<span class="normal"> 58</span>
+<span class="normal"> 59</span>
+<span class="normal"> 60</span>
+<span class="normal"> 61</span>
+<span class="normal"> 62</span>
+<span class="normal"> 63</span>
+<span class="normal"> 64</span>
+<span class="normal"> 65</span>
+<span class="normal"> 66</span>
+<span class="normal"> 67</span>
+<span class="normal"> 68</span>
+<span class="normal"> 69</span>
+<span class="normal"> 70</span>
+<span class="normal"> 71</span>
+<span class="normal"> 72</span>
+<span class="normal"> 73</span>
+<span class="normal"> 74</span>
+<span class="normal"> 75</span>
+<span class="normal"> 76</span>
+<span class="normal"> 77</span>
+<span class="normal"> 78</span>
+<span class="normal"> 79</span>
+<span class="normal"> 80</span>
+<span class="normal"> 81</span>
+<span class="normal"> 82</span>
+<span class="normal"> 83</span>
+<span class="normal"> 84</span>
+<span class="normal"> 85</span>
+<span class="normal"> 86</span>
+<span class="normal"> 87</span>
+<span class="normal"> 88</span>
+<span class="normal"> 89</span>
+<span class="normal"> 90</span>
+<span class="normal"> 91</span>
+<span class="normal"> 92</span>
+<span class="normal"> 93</span>
+<span class="normal"> 94</span>
+<span class="normal"> 95</span>
+<span class="normal"> 96</span>
+<span class="normal"> 97</span>
+<span class="normal"> 98</span>
+<span class="normal"> 99</span>
+<span class="normal">100</span>
+<span class="normal">101</span>
+<span class="normal">102</span>
+<span class="normal">103</span>
+<span class="normal">104</span>
+<span class="normal">105</span>
+<span class="normal">106</span>
+<span class="normal">107</span>
+<span class="normal">108</span>
+<span class="normal">109</span>
+<span class="normal">110</span>
+<span class="normal">111</span>
+<span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span>
+<span class="normal">115</span>
+<span class="normal">116</span>
+<span class="normal">117</span>
+<span class="normal">118</span>
+<span class="normal">119</span>
+<span class="normal">120</span>
+<span class="normal">121</span>
+<span class="normal">122</span>
+<span class="normal">123</span>
+<span class="normal">124</span>
+<span class="normal">125</span>
+<span class="normal">126</span>
+<span class="normal">127</span>
+<span class="normal">128</span>
+<span class="normal">129</span>
+<span class="normal">130</span>
+<span class="normal">131</span>
+<span class="normal">132</span>
+<span class="normal">133</span>
+<span class="normal">134</span>
+<span class="normal">135</span>
+<span class="normal">136</span>
+<span class="normal">137</span>
+<span class="normal">138</span>
+<span class="normal">139</span>
+<span class="normal">140</span>
+<span class="normal">141</span>
+<span class="normal">142</span>
+<span class="normal">143</span>
+<span class="normal">144</span>
+<span class="normal">145</span>
+<span class="normal">146</span>
+<span class="normal">147</span>
+<span class="normal">148</span>
+<span class="normal">149</span>
+<span class="normal">150</span>
+<span class="normal">151</span>
+<span class="normal">152</span>
+<span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
+<span class="normal">156</span>
+<span class="normal">157</span>
+<span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span>
+<span class="normal">161</span>
+<span class="normal">162</span>
+<span class="normal">163</span>
+<span class="normal">164</span>
+<span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span>
+<span class="normal">178</span>
+<span class="normal">179</span>
+<span class="normal">180</span>
+<span class="normal">181</span>
+<span class="normal">182</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span>
+<span class="normal">189</span>
+<span class="normal">190</span>
+<span class="normal">191</span>
+<span class="normal">192</span>
+<span class="normal">193</span>
+<span class="normal">194</span>
+<span class="normal">195</span>
+<span class="normal">196</span>
+<span class="normal">197</span>
+<span class="normal">198</span>
+<span class="normal">199</span>
+<span class="normal">200</span>
+<span class="normal">201</span>
+<span class="normal">202</span>
+<span class="normal">203</span>
+<span class="normal">204</span>
+<span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span>
+<span class="normal">226</span>
+<span class="normal">227</span>
+<span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span>
+<span class="normal">271</span>
+<span class="normal">272</span>
+<span class="normal">273</span>
+<span class="normal">274</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ClickHouseTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A table implementation that reads data from ClickHouse.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">schema</span><span class="p">:</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="n">ClickHouseTableConfig</span><span class="p">,</span>
+        <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+        <span class="n">docs_filters</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Filter</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">docs_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">roapi_opts</span><span class="p">:</span> <span class="n">RoapiOptions</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">unique_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">table_metadata_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">stats_cols</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the ClickHouseTable.</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            ```python</span>
+<span class="sd">            from datarepo.core.tables import ClickHouseTable, ClickHouseTableConfig</span>
+
+<span class="sd">            config = ClickHouseTableConfig(</span>
+<span class="sd">                host=&quot;localhost&quot;,</span>
+<span class="sd">                port=8443,</span>
+<span class="sd">                username=&quot;user&quot;,</span>
+<span class="sd">                password=&quot;password&quot;,</span>
+<span class="sd">                database=&quot;default&quot;,</span>
+<span class="sd">                secure=True,</span>
+<span class="sd">                verify=True,</span>
+<span class="sd">                settings={&quot;max_result_rows&quot;: 1000}</span>
+<span class="sd">            )</span>
+
+<span class="sd">            table = ClickHouseTable(</span>
+<span class="sd">                name=&quot;my_table&quot;,</span>
+<span class="sd">                schema=pa.schema(</span>
+<span class="sd">                    [</span>
+<span class="sd">                        (&quot;implant_id&quot;, pa.int64()),</span>
+<span class="sd">                        (&quot;date&quot;, pa.string()),</span>
+<span class="sd">                        (&quot;uniq&quot;, pa.string()),</span>
+<span class="sd">                        (&quot;value&quot;, pa.int64()),</span>
+<span class="sd">                    ]</span>
+<span class="sd">                ),</span>
+<span class="sd">                config=config,</span>
+<span class="sd">                description=&quot;My ClickHouse table&quot;,</span>
+<span class="sd">                docs_filters=[...],</span>
+<span class="sd">                docs_columns=[...],</span>
+<span class="sd">                unique_columns=[&quot;uniq&quot;],</span>
+<span class="sd">                table_metadata_args={&quot;answer&quot;: &quot;42&quot;},</span>
+<span class="sd">                stats_cols=[&quot;implant_id&quot;]</span>
+<span class="sd">            )</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Name of the table in ClickHouse</span>
+<span class="sd">            schema: Schema of the table</span>
+<span class="sd">            config: Configuration for connecting to ClickHouse</span>
+<span class="sd">            description: Description of the table for documentation</span>
+<span class="sd">            docs_filters: Filters to show in documentation</span>
+<span class="sd">            docs_columns: Columns to show in documentation</span>
+<span class="sd">            roapi_opts: Options for ROAPI integration</span>
+<span class="sd">            unique_columns: Columns to use for deduplication</span>
+<span class="sd">            table_metadata_args: Additional metadata arguments</span>
+<span class="sd">            stats_cols: Statistics columns, used to define columns that have statistics</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">schema</span> <span class="o">=</span> <span class="n">schema</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="o">=</span> <span class="n">unique_columns</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">docs_filters</span> <span class="o">=</span> <span class="n">docs_filters</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">docs_columns</span> <span class="o">=</span> <span class="n">docs_columns</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span> <span class="o">=</span> <span class="n">stats_cols</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">uri</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_uri</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span> <span class="o">=</span> <span class="n">TableMetadata</span><span class="p">(</span>
+            <span class="n">table_type</span><span class="o">=</span><span class="s2">&quot;CLICKHOUSE&quot;</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="n">description</span><span class="p">,</span>
+            <span class="n">docs_args</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">docs_filters</span><span class="p">,</span> <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">docs_columns</span><span class="p">},</span>
+            <span class="n">roapi_opts</span><span class="o">=</span><span class="n">roapi_opts</span> <span class="ow">or</span> <span class="n">RoapiOptions</span><span class="p">(),</span>
+            <span class="o">**</span><span class="p">(</span><span class="n">table_metadata_args</span> <span class="ow">or</span> <span class="p">{}),</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate and return the schema of the table, including columns.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            TableSchema: table schema containing column information.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">schema</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span>
+
+        <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">TableColumn</span><span class="p">(</span>
+                <span class="n">column</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+                <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+                <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">has_stats</span><span class="o">=</span><span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">names</span>
+        <span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">TableSchema</span><span class="p">(</span>
+            <span class="n">partitions</span><span class="o">=</span><span class="p">[],</span>  <span class="c1"># Clickhouse does not have partitions exposed in schema.</span>
+            <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_query</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">filters</span><span class="p">:</span> <span class="n">InputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a SQL query for the ClickHouse table.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            filters (InputFilters, optional): Filters to apply to the query. Defaults to None.</span>
+<span class="sd">            columns (Optional[List[str]], optional): Columns to select in the query. Defaults to None.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: SQL query string to select data from the ClickHouse table.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">column_expr</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span>
+        <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
+            <span class="n">valid_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">valid_columns</span><span class="p">:</span>
+                <span class="n">column_expr</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">c</span><span class="si">}</span><span class="s2">`&quot;</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">valid_columns</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;No valid columns provided for table </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">. Using &#39;*&#39; to select all columns.&quot;</span>
+                <span class="p">)</span>
+
+        <span class="c1"># Build WHERE clause from filters if provided</span>
+        <span class="n">where_clause</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">filters</span><span class="p">:</span>
+            <span class="n">normalized_filters</span> <span class="o">=</span> <span class="n">normalize_filters</span><span class="p">(</span><span class="n">filters</span><span class="p">)</span>
+            <span class="n">filter_expressions</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="k">for</span> <span class="n">filter_set</span> <span class="ow">in</span> <span class="n">normalized_filters</span><span class="p">:</span>
+                <span class="n">set_expressions</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filter_set</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;=&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` = </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;!=&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` != </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;&gt;&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` &gt; </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;&lt;&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` &lt; </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;&gt;=&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` &gt;= </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;&lt;=&quot;</span><span class="p">:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` &lt;= </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;in&quot;</span><span class="p">:</span>
+                        <span class="n">values</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                            <span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cast</span><span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` IN (</span><span class="si">{</span><span class="n">values</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="o">==</span> <span class="s2">&quot;not in&quot;</span><span class="p">:</span>
+                        <span class="n">values</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                            <span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cast</span><span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` NOT IN (</span><span class="si">{</span><span class="n">values</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+                    <span class="k">elif</span> <span class="n">f</span><span class="o">.</span><span class="n">operator</span> <span class="ow">in</span> <span class="p">[</span>
+                        <span class="s2">&quot;contains&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;includes&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;includes any&quot;</span><span class="p">,</span>
+                        <span class="s2">&quot;includes all&quot;</span><span class="p">,</span>
+                    <span class="p">]:</span>
+                        <span class="n">set_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;`</span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">column</span><span class="si">}</span><span class="s2">` LIKE </span><span class="si">{</span><span class="n">format_value_for_sql</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">set_expressions</span><span class="p">:</span>
+                    <span class="n">filter_expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;(&quot;</span> <span class="o">+</span> <span class="s2">&quot; AND &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">set_expressions</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;)&quot;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">filter_expressions</span><span class="p">:</span>
+                <span class="n">where_clause</span> <span class="o">=</span> <span class="s2">&quot;WHERE &quot;</span> <span class="o">+</span> <span class="s2">&quot; OR &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">filter_expressions</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;SELECT </span><span class="si">{</span><span class="n">column_expr</span><span class="si">}</span><span class="s2"> FROM `</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">database</span><span class="si">}</span><span class="s2">`.`</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">` </span><span class="si">{</span><span class="n">where_clause</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">filters</span><span class="p">:</span> <span class="n">InputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">columns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Query data from the ClickHouse table.</span>
+
+<span class="sd">        Example usage:</span>
+<span class="sd">            ``` py</span>
+<span class="sd">            from datarepo.core.tables import ClickHouseTable, ClickHouseTableConfig</span>
+<span class="sd">            config = ClickHouseTableConfig(...)</span>
+<span class="sd">            table = ClickHouseTable(...)</span>
+<span class="sd">            df = table(filters=[Filter(&quot;implant_id&quot;, &quot;=&quot;, 123)], columns=[&quot;date&quot;, &quot;value&quot;])</span>
+<span class="sd">            ```</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            filters: Filters to apply to the data.</span>
+<span class="sd">            columns: Columns to select from the table.</span>
+<span class="sd">            **kwargs: Additional arguments.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            NlkDataFrame: A lazy Polars DataFrame with the requested data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">columns</span><span class="p">)</span>
+
+        <span class="c1"># use polars read database_uri to read the result of the query</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">read_database_uri</span><span class="p">(</span>
+            <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
+            <span class="n">uri</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uri</span><span class="p">,</span>
+            <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;connectorx&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
+</code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="datarepo.core.tables.ClickHouseTable.__call__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__call__</span><span class="p">(</span><span class="n">filters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
+
+<a href="#datarepo.core.tables.ClickHouseTable.__call__" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Query data from the ClickHouse table.</p>
+
+
+<details class="example-usage" open>
+  <summary>Example usage</summary>
+  <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core.tables</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClickHouseTable</span><span class="p">,</span> <span class="n">ClickHouseTableConfig</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">ClickHouseTableConfig</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">table</span> <span class="o">=</span> <span class="n">ClickHouseTable</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">table</span><span class="p">(</span><span class="n">filters</span><span class="o">=</span><span class="p">[</span><span class="n">Filter</span><span class="p">(</span><span class="s2">&quot;implant_id&quot;</span><span class="p">,</span> <span class="s2">&quot;=&quot;</span><span class="p">,</span> <span class="mi">123</span><span class="p">)],</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">])</span>
+</code></pre></div>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>filters</code>
+            </td>
+            <td>
+                  <code><span title="datarepo.core.tables.filters.InputFilters">InputFilters</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filters to apply to the data.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>columns</code>
+            </td>
+            <td>
+                  <code><span title="typing.List">List</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Columns to select from the table.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>**kwargs</code>
+            </td>
+            <td>
+                  <code><span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Additional arguments.</p>
+              </div>
+            </td>
+            <td>
+                  <code>{}</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>NlkDataFrame</code></td>            <td>
+                  <code><span title="datarepo.core.dataframe.NlkDataFrame">NlkDataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A lazy Polars DataFrame with the requested data.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span>
+<span class="normal">271</span>
+<span class="normal">272</span>
+<span class="normal">273</span>
+<span class="normal">274</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">filters</span><span class="p">:</span> <span class="n">InputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">columns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Query data from the ClickHouse table.</span>
+
+<span class="sd">    Example usage:</span>
+<span class="sd">        ``` py</span>
+<span class="sd">        from datarepo.core.tables import ClickHouseTable, ClickHouseTableConfig</span>
+<span class="sd">        config = ClickHouseTableConfig(...)</span>
+<span class="sd">        table = ClickHouseTable(...)</span>
+<span class="sd">        df = table(filters=[Filter(&quot;implant_id&quot;, &quot;=&quot;, 123)], columns=[&quot;date&quot;, &quot;value&quot;])</span>
+<span class="sd">        ```</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        filters: Filters to apply to the data.</span>
+<span class="sd">        columns: Columns to select from the table.</span>
+<span class="sd">        **kwargs: Additional arguments.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        NlkDataFrame: A lazy Polars DataFrame with the requested data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">columns</span><span class="p">)</span>
+
+    <span class="c1"># use polars read database_uri to read the result of the query</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">read_database_uri</span><span class="p">(</span>
+        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
+        <span class="n">uri</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uri</span><span class="p">,</span>
+        <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;connectorx&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="datarepo.core.tables.ClickHouseTable.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">schema</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">docs_filters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">docs_columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">roapi_opts</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">unique_columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">table_metadata_args</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">stats_cols</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#datarepo.core.tables.ClickHouseTable.__init__" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Initialize the ClickHouseTable.</p>
+
+
+<details class="example-usage" open>
+  <summary>Example usage</summary>
+  <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core.tables</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClickHouseTable</span><span class="p">,</span> <span class="n">ClickHouseTableConfig</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">ClickHouseTableConfig</span><span class="p">(</span>
+    <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
+    <span class="n">port</span><span class="o">=</span><span class="mi">8443</span><span class="p">,</span>
+    <span class="n">username</span><span class="o">=</span><span class="s2">&quot;user&quot;</span><span class="p">,</span>
+    <span class="n">password</span><span class="o">=</span><span class="s2">&quot;password&quot;</span><span class="p">,</span>
+    <span class="n">database</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span>
+    <span class="n">secure</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">verify</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">settings</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;max_result_rows&quot;</span><span class="p">:</span> <span class="mi">1000</span><span class="p">}</span>
+<span class="p">)</span>
+
+<span class="n">table</span> <span class="o">=</span> <span class="n">ClickHouseTable</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_table&quot;</span><span class="p">,</span>
+    <span class="n">schema</span><span class="o">=</span><span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="p">(</span><span class="s2">&quot;implant_id&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
+            <span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+            <span class="p">(</span><span class="s2">&quot;uniq&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+            <span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
+        <span class="p">]</span>
+    <span class="p">),</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;My ClickHouse table&quot;</span><span class="p">,</span>
+    <span class="n">docs_filters</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+    <span class="n">docs_columns</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+    <span class="n">unique_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;uniq&quot;</span><span class="p">],</span>
+    <span class="n">table_metadata_args</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="s2">&quot;42&quot;</span><span class="p">},</span>
+    <span class="n">stats_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;implant_id&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+</code></pre></div>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the table in ClickHouse</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>schema</code>
+            </td>
+            <td>
+                  <code><span title="pyarrow.Schema">Schema</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Schema of the table</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code&gt;ClickHouseTableConfig&lt;/code&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;datarepo.core.tables.clickhouse_table.ClickHouseTableConfig&lt;/code&gt;)" href="#datarepo.core.tables.ClickHouseTableConfig">ClickHouseTableConfig</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Configuration for connecting to ClickHouse</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>description</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Description of the table for documentation</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>docs_filters</code>
+            </td>
+            <td>
+                  <code><span title="typing.List">List</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;Filter&lt;/code&gt; (&lt;code&gt;datarepo.core.tables.filters.Filter&lt;/code&gt;)" href="#datarepo.core.tables.Filter">Filter</a>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Filters to show in documentation</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>docs_columns</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.List">List</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Columns to show in documentation</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>roapi_opts</code>
+            </td>
+            <td>
+                  <code><span title="datarepo.core.tables.util.RoapiOptions">RoapiOptions</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Options for ROAPI integration</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>unique_columns</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.List">List</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Columns to use for deduplication</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>table_metadata_args</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Additional metadata arguments</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>stats_cols</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.List">List</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Statistics columns, used to define columns that have statistics</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 53</span>
+<span class="normal"> 54</span>
+<span class="normal"> 55</span>
+<span class="normal"> 56</span>
+<span class="normal"> 57</span>
+<span class="normal"> 58</span>
+<span class="normal"> 59</span>
+<span class="normal"> 60</span>
+<span class="normal"> 61</span>
+<span class="normal"> 62</span>
+<span class="normal"> 63</span>
+<span class="normal"> 64</span>
+<span class="normal"> 65</span>
+<span class="normal"> 66</span>
+<span class="normal"> 67</span>
+<span class="normal"> 68</span>
+<span class="normal"> 69</span>
+<span class="normal"> 70</span>
+<span class="normal"> 71</span>
+<span class="normal"> 72</span>
+<span class="normal"> 73</span>
+<span class="normal"> 74</span>
+<span class="normal"> 75</span>
+<span class="normal"> 76</span>
+<span class="normal"> 77</span>
+<span class="normal"> 78</span>
+<span class="normal"> 79</span>
+<span class="normal"> 80</span>
+<span class="normal"> 81</span>
+<span class="normal"> 82</span>
+<span class="normal"> 83</span>
+<span class="normal"> 84</span>
+<span class="normal"> 85</span>
+<span class="normal"> 86</span>
+<span class="normal"> 87</span>
+<span class="normal"> 88</span>
+<span class="normal"> 89</span>
+<span class="normal"> 90</span>
+<span class="normal"> 91</span>
+<span class="normal"> 92</span>
+<span class="normal"> 93</span>
+<span class="normal"> 94</span>
+<span class="normal"> 95</span>
+<span class="normal"> 96</span>
+<span class="normal"> 97</span>
+<span class="normal"> 98</span>
+<span class="normal"> 99</span>
+<span class="normal">100</span>
+<span class="normal">101</span>
+<span class="normal">102</span>
+<span class="normal">103</span>
+<span class="normal">104</span>
+<span class="normal">105</span>
+<span class="normal">106</span>
+<span class="normal">107</span>
+<span class="normal">108</span>
+<span class="normal">109</span>
+<span class="normal">110</span>
+<span class="normal">111</span>
+<span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span>
+<span class="normal">115</span>
+<span class="normal">116</span>
+<span class="normal">117</span>
+<span class="normal">118</span>
+<span class="normal">119</span>
+<span class="normal">120</span>
+<span class="normal">121</span>
+<span class="normal">122</span>
+<span class="normal">123</span>
+<span class="normal">124</span>
+<span class="normal">125</span>
+<span class="normal">126</span>
+<span class="normal">127</span>
+<span class="normal">128</span>
+<span class="normal">129</span>
+<span class="normal">130</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">schema</span><span class="p">:</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">ClickHouseTableConfig</span><span class="p">,</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">docs_filters</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Filter</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">docs_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">roapi_opts</span><span class="p">:</span> <span class="n">RoapiOptions</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">unique_columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">table_metadata_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stats_cols</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the ClickHouseTable.</span>
+
+<span class="sd">    Example usage:</span>
+<span class="sd">        ```python</span>
+<span class="sd">        from datarepo.core.tables import ClickHouseTable, ClickHouseTableConfig</span>
+
+<span class="sd">        config = ClickHouseTableConfig(</span>
+<span class="sd">            host=&quot;localhost&quot;,</span>
+<span class="sd">            port=8443,</span>
+<span class="sd">            username=&quot;user&quot;,</span>
+<span class="sd">            password=&quot;password&quot;,</span>
+<span class="sd">            database=&quot;default&quot;,</span>
+<span class="sd">            secure=True,</span>
+<span class="sd">            verify=True,</span>
+<span class="sd">            settings={&quot;max_result_rows&quot;: 1000}</span>
+<span class="sd">        )</span>
+
+<span class="sd">        table = ClickHouseTable(</span>
+<span class="sd">            name=&quot;my_table&quot;,</span>
+<span class="sd">            schema=pa.schema(</span>
+<span class="sd">                [</span>
+<span class="sd">                    (&quot;implant_id&quot;, pa.int64()),</span>
+<span class="sd">                    (&quot;date&quot;, pa.string()),</span>
+<span class="sd">                    (&quot;uniq&quot;, pa.string()),</span>
+<span class="sd">                    (&quot;value&quot;, pa.int64()),</span>
+<span class="sd">                ]</span>
+<span class="sd">            ),</span>
+<span class="sd">            config=config,</span>
+<span class="sd">            description=&quot;My ClickHouse table&quot;,</span>
+<span class="sd">            docs_filters=[...],</span>
+<span class="sd">            docs_columns=[...],</span>
+<span class="sd">            unique_columns=[&quot;uniq&quot;],</span>
+<span class="sd">            table_metadata_args={&quot;answer&quot;: &quot;42&quot;},</span>
+<span class="sd">            stats_cols=[&quot;implant_id&quot;]</span>
+<span class="sd">        )</span>
+<span class="sd">        ```</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: Name of the table in ClickHouse</span>
+<span class="sd">        schema: Schema of the table</span>
+<span class="sd">        config: Configuration for connecting to ClickHouse</span>
+<span class="sd">        description: Description of the table for documentation</span>
+<span class="sd">        docs_filters: Filters to show in documentation</span>
+<span class="sd">        docs_columns: Columns to show in documentation</span>
+<span class="sd">        roapi_opts: Options for ROAPI integration</span>
+<span class="sd">        unique_columns: Columns to use for deduplication</span>
+<span class="sd">        table_metadata_args: Additional metadata arguments</span>
+<span class="sd">        stats_cols: Statistics columns, used to define columns that have statistics</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">schema</span> <span class="o">=</span> <span class="n">schema</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="o">=</span> <span class="n">unique_columns</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">docs_filters</span> <span class="o">=</span> <span class="n">docs_filters</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">docs_columns</span> <span class="o">=</span> <span class="n">docs_columns</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span> <span class="o">=</span> <span class="n">stats_cols</span> <span class="ow">or</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">uri</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_uri</span><span class="p">()</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">table_metadata</span> <span class="o">=</span> <span class="n">TableMetadata</span><span class="p">(</span>
+        <span class="n">table_type</span><span class="o">=</span><span class="s2">&quot;CLICKHOUSE&quot;</span><span class="p">,</span>
+        <span class="n">description</span><span class="o">=</span><span class="n">description</span><span class="p">,</span>
+        <span class="n">docs_args</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;filters&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">docs_filters</span><span class="p">,</span> <span class="s2">&quot;columns&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">docs_columns</span><span class="p">},</span>
+        <span class="n">roapi_opts</span><span class="o">=</span><span class="n">roapi_opts</span> <span class="ow">or</span> <span class="n">RoapiOptions</span><span class="p">(),</span>
+        <span class="o">**</span><span class="p">(</span><span class="n">table_metadata_args</span> <span class="ow">or</span> <span class="p">{}),</span>
+    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="datarepo.core.tables.ClickHouseTable.get_schema" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_schema</span><span class="p">()</span></code>
+
+<a href="#datarepo.core.tables.ClickHouseTable.get_schema" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Generate and return the schema of the table, including columns.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>TableSchema</code></td>            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code&gt;TableSchema&lt;/code&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-dataclass&quot;&gt;&lt;code&gt;dataclass&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;datarepo.core.tables.metadata.TableSchema&lt;/code&gt;)" href="#datarepo.core.tables.TableSchema">TableSchema</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>table schema containing column information.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">132</span>
+<span class="normal">133</span>
+<span class="normal">134</span>
+<span class="normal">135</span>
+<span class="normal">136</span>
+<span class="normal">137</span>
+<span class="normal">138</span>
+<span class="normal">139</span>
+<span class="normal">140</span>
+<span class="normal">141</span>
+<span class="normal">142</span>
+<span class="normal">143</span>
+<span class="normal">144</span>
+<span class="normal">145</span>
+<span class="normal">146</span>
+<span class="normal">147</span>
+<span class="normal">148</span>
+<span class="normal">149</span>
+<span class="normal">150</span>
+<span class="normal">151</span>
+<span class="normal">152</span>
+<span class="normal">153</span>
+<span class="normal">154</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TableSchema</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate and return the schema of the table, including columns.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        TableSchema: table schema containing column information.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">schema</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span>
+
+    <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">TableColumn</span><span class="p">(</span>
+            <span class="n">column</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+            <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">type</span><span class="p">),</span>
+            <span class="n">readonly</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">filter_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">has_stats</span><span class="o">=</span><span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_cols</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">schema</span><span class="o">.</span><span class="n">names</span>
+    <span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">TableSchema</span><span class="p">(</span>
+        <span class="n">partitions</span><span class="o">=</span><span class="p">[],</span>  <span class="c1"># Clickhouse does not have partitions exposed in schema.</span>
+        <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="datarepo.core.tables.ClickHouseTableConfig" class="doc doc-heading">
+            <code>ClickHouseTableConfig</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#datarepo.core.tables.ClickHouseTableConfig" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+
+        <p>Configuration for connecting to ClickHouse.</p>
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">25</span>
+<span class="normal">26</span>
+<span class="normal">27</span>
+<span class="normal">28</span>
+<span class="normal">29</span>
+<span class="normal">30</span>
+<span class="normal">31</span>
+<span class="normal">32</span>
+<span class="normal">33</span>
+<span class="normal">34</span>
+<span class="normal">35</span>
+<span class="normal">36</span>
+<span class="normal">37</span>
+<span class="normal">38</span>
+<span class="normal">39</span>
+<span class="normal">40</span>
+<span class="normal">41</span>
+<span class="normal">42</span>
+<span class="normal">43</span>
+<span class="normal">44</span>
+<span class="normal">45</span>
+<span class="normal">46</span>
+<span class="normal">47</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ClickHouseTableConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration for connecting to ClickHouse.&quot;&quot;&quot;</span>
+
+    <span class="n">host</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8443</span>
+    <span class="n">username</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">password</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">database</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span>
+    <span class="n">secure</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">verify</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">settings</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_uri</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Construct the URI for the ClickHouse table.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            str: URI for the ClickHouse table.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># check if username and password are provided</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">username</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">password</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;clickhouse://</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">database</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;clickhouse://</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">password</span><span class="si">}</span><span class="s2">@</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">database</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="datarepo.core.tables.ClickHouseTableConfig.get_uri" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">get_uri</span><span class="p">()</span></code>
+
+<a href="#datarepo.core.tables.ClickHouseTableConfig.get_uri" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Construct the URI for the ClickHouse table.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>str</code></td>            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>URI for the ClickHouse table.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>src/datarepo/core/tables/clickhouse_table.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">38</span>
+<span class="normal">39</span>
+<span class="normal">40</span>
+<span class="normal">41</span>
+<span class="normal">42</span>
+<span class="normal">43</span>
+<span class="normal">44</span>
+<span class="normal">45</span>
+<span class="normal">46</span>
+<span class="normal">47</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">get_uri</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Construct the URI for the ClickHouse table.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        str: URI for the ClickHouse table.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># check if username and password are provided</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">username</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">password</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;clickhouse://</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">database</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;clickhouse://</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">password</span><span class="si">}</span><span class="s2">@</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">database</span><span class="si">}</span><span class="s2">&quot;</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-class">
 
