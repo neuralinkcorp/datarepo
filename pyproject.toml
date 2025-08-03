@@ -40,7 +40,7 @@ dev = [
     "boto3-stubs>=1.39.0",
     "pyarrow-stubs>=20.0.0",
     "testcontainers[clickhouse]>=4.10.0",
-    "connectorx>=0.4.3",
+    "connectorx<=0.4.1",
 ]
 
 [tool.hatch.build]
