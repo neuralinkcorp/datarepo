@@ -17,7 +17,7 @@ def clickhouse_config() -> ClickHouseTableConfig:
 
     client = clickhouse_driver.Client.from_url(f"clickhouse://chuser:chpass@{host}:{port}/testdb")
     client.execute("""
-    CREATE TABLE IF NOT EXISTS default.test_table (
+    CREATE TABLE IF NOT EXISTS testdb.test_table (
         implant_id Int64,
         date String,
         value Int64,
@@ -28,7 +28,7 @@ def clickhouse_config() -> ClickHouseTableConfig:
 
     # Insert test data
     client.execute("""
-    INSERT INTO default.test_table
+    INSERT INTO testdb.test_table
     (implant_id, date, value, str_value)
     VALUES
     (1, '2023-01-01', 100, 'alpha'),

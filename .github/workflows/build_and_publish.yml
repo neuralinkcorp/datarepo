@@ -70,7 +70,7 @@ jobs:
 
     - name: Stop Docker Compose
       if: always()
-      run: docker compose down -v
+      run: docker compose -f test/integration/resources/docker-compose.yml down -v
 
   code-quality:
     runs-on: ubuntu-latest
