@@ -43,8 +43,8 @@ class ClickHouseTableConfig:
         """
         # check if username and password are provided
         if not self.username or not self.password:
-            return f"clickhouse://{self.host}:{self.port}/{self.database}"
-        return f"clickhouse://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+            return f"clickhouse+http://{self.host}:{self.port}/{self.database}"
+        return f"clickhouse+http://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
 class ClickHouseTable(TableProtocol):
@@ -269,7 +269,7 @@ class ClickHouseTable(TableProtocol):
             query=query,
             uri=self.uri,
             engine="connectorx",
-            protocol="text",
+            protocol="http",
         )
 
         return df.lazy()
