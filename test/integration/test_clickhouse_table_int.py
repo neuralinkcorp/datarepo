@@ -14,6 +14,7 @@ from datarepo.core.tables.filters import Filter
 def clickhouse_container() -> Generator[ClickHouseContainer, None, None]:
     """Start a ClickHouse container for testing."""
     with ClickHouseContainer() as container:
+        container.start()
         client = clickhouse_driver.Client.from_url(container.get_connection_url())
         client.execute("""
         CREATE TABLE IF NOT EXISTS default.test_table (
