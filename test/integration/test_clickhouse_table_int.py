@@ -2,6 +2,7 @@ import os
 import pytest
 import pyarrow as pa
 
+import clickhouse_driver
 from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
 from datarepo.core.tables.filters import Filter
 
@@ -10,17 +11,41 @@ from datarepo.core.tables.filters import Filter
 def clickhouse_config() -> ClickHouseTableConfig:
     """Create a ClickHouseTableConfig for the container."""
     # Get connection details from environment or use defaults
+
     host = os.environ.get("CLICKHOUSE_HOST", "localhost")
     port = int(os.environ.get("CLICKHOUSE_PORT", "9000"))
+
+    client = clickhouse_driver.Client.from_url(f"clickhouse://chuser:chpass@{host}:{port}/testdb")
+    client.execute("""
+    CREATE TABLE IF NOT EXISTS default.test_table (
+        implant_id Int64,
+        date String,
+        value Int64,
+        str_value String
+    ) ENGINE = MergeTree()
+    ORDER BY (implant_id, date)
+    """)
+
+    # Insert test data
+    client.execute("""
+    INSERT INTO default.test_table
+    (implant_id, date, value, str_value)
+    VALUES
+    (1, '2023-01-01', 100, 'alpha'),
+    (1, '2023-01-02', 110, 'beta'),
+    (2, '2023-01-01', 200, 'gamma'),
+    (2, '2023-01-02', 210, 'delta'),
+    (3, '2023-01-03', 300, 'epsilon')
+    """)
     
     print(f"Connecting to ClickHouse at {host}:{port}")
     
     return ClickHouseTableConfig(
         host=host,
         port=int(port), 
-        username="default",
-        password="",
-        database="default",
+        username="chuser",
+        password="chpass",
+        database="testdb",
     )
 
 
