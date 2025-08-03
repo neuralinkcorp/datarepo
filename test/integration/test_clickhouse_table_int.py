@@ -4,6 +4,7 @@ import polars as pl
 import pyarrow as pa
 from typing import Generator
 
+import clickhouse_driver
 from testcontainers.clickhouse import ClickHouseContainer
 from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
 from datarepo.core.tables.filters import Filter
@@ -13,8 +14,7 @@ from datarepo.core.tables.filters import Filter
 def clickhouse_container() -> Generator[ClickHouseContainer, None, None]:
     """Start a ClickHouse container for testing."""
     with ClickHouseContainer() as container:
-        container.start()
-        client = container.get_client()
+        client = clickhouse_driver.Client.from_url(container.get_connection_url())
         client.execute("""
         CREATE TABLE IF NOT EXISTS default.test_table (
             implant_id Int64,
