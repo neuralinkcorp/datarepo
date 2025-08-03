@@ -38,14 +38,14 @@ def clickhouse_config() -> ClickHouseTableConfig:
     (3, '2023-01-03', 300, 'epsilon')
     """)
     
-    print(f"Connecting to ClickHouse at {host}:{port}")
+    connection = client.get_connection()
     
     return ClickHouseTableConfig(
-        host=host,
-        port=int(port), 
-        username="chuser",
-        password="chpass",
-        database="testdb",
+        host=connection.host,
+        port=connection.port,
+        username=connection.user,
+        password=connection.password,
+        database=connection.database,
     )
 
 
