@@ -250,45 +250,111 @@ class ParquetTable(TableProtocol):
         columns: Optional[list[str]] = None,
         boto3_session: boto3.Session | None = None,
         endpoint_url: str | None = None,
+        batch_size: Optional[int] = None,
+        callback: Optional[Callable[[int, int], None]] = None,
         **kwargs: Any,
     ) -> NlkDataFrame:
         """Fetches data from the Parquet table based on the provided filters and columns.
+        
+        When working with large datasets, use batch_size to process data in chunks. This can significantly
+        reduce memory usage by processing and yielding data in smaller batches.
 
         Args:
             filters (InputFilters | None, optional): filters to apply to the data. Defaults to None.
             columns (Optional[list[str]], optional): columns to select from the data. Defaults to None.
             boto3_session (boto3.Session | None, optional): boto3 session to use for S3 access. Defaults to None.
             endpoint_url (str | None, optional): endpoint URL for S3 access. Defaults to None.
+            batch_size (Optional[int], optional): If provided, processes data in batches of this size. 
+                This can help reduce memory usage for large datasets. Defaults to None (process all at once).
+            callback (Optional[Callable[[int, int], None]], optional): Optional callback function that's called 
+                with (current_batch, total_batches) during batch processing. Useful for progress reporting.
+                Only used when batch_size is specified.
 
         Returns:
-            NlkDataFrame: A DataFrame containing the filtered data from the Parquet table.
+            NlkDataFrame: A DataFrame containing the filtered and selected data. If batch_size is specified,
+                returns a single DataFrame with all batches concatenated.
         """
+        import pyarrow.parquet as pq
+        import pyarrow.dataset as ds
+        from typing import List, Generator
+        import warnings
+
+        def process_batch(batch: ds.Dataset, batch_num: int, total_batches: int) -> pl.DataFrame:
+            """Process a single batch of data."""
+            if callback:
+                callback(batch_num + 1, total_batches)  # 1-based index for user-facing callbacks
+                
+            # Convert batch to polars DataFrame
+            table = batch.to_table()
+            df = pl.from_arrow(table)
+            
+            # Apply remaining filters
+            if remaining_filters:
+                filter_expr = _filters_to_expr(remaining_filters)
+                if filter_expr is not None:
+                    df = df.filter(filter_expr)
+            
+            # Select columns if specified
+            if columns:
+                df = df.select(columns)
+                
+            return df
+
         normalized_filters = normalize_filters(filters)
-        (
-            uri,
-            remaining_partitions,
-            remaining_filters,
-            applied_filters,
-        ) = self._build_uri_from_filters(normalized_filters)
+        uri_with_prefix, partitions, remaining_filters, applied_filters = self._build_uri_from_filters(
+            normalized_filters
+        )
 
+        # Get storage options for S3 access
         storage_options = get_storage_options(
-            boto3_session=boto3_session,
-            endpoint_url=endpoint_url,
+            boto3_session=boto3_session, endpoint_url=endpoint_url
         )
 
-        df = pl.scan_parquet(
-            uri,
-            hive_partitioning=len(remaining_partitions) > 0,
-            hive_schema={
-                partition.column: partition.col_type
-                for partition in remaining_partitions
-            },
-            allow_missing_columns=True,
-            storage_options=storage_options,
+        # Read the parquet dataset
+        dataset = ds.dataset(
+            uri_with_prefix,
+            format="parquet",
+            partitioning="hive" if self.partitioning_scheme == PartitioningScheme.HIVE else None,
+            filesystem=fs.S3FileSystem(**storage_options) if storage_options else None,
         )
 
+        # If batch_size is not specified, process all data at once
+        if batch_size is None:
+            # Apply filters and get scanner
+            scanner = dataset.scanner(columns=columns, filter=_filters_to_expr(remaining_filters))
+            table = scanner.to_table()
+            df = pl.from_arrow(table)
+        else:
+            # Process in batches
+            fragments = list(dataset.get_fragments(filter=_filters_to_expr(remaining_filters)))
+            total_fragments = len(fragments)
+            
+            if total_fragments == 0:
+                # Handle empty dataset case
+                return pl.DataFrame()
+                
+            # Process fragments in batches
+            batch_dfs = []
+            for i in range(0, total_fragments, batch_size):
+                batch_fragments = fragments[i:i+batch_size]
+                batch = ds.FileSystemDataset(
+                    batch_fragments,
+                    schema=dataset.schema,
+                    format=dataset.format,
+                    filesystem=dataset.filesystem
+                )
+                
+                batch_df = process_batch(batch, i // batch_size, (total_fragments + batch_size - 1) // batch_size)
+                batch_dfs.append(batch_df)
+            
+            # Combine all batches
+            if batch_dfs:
+                df = pl.concat(batch_dfs)
+            else:
+                return pl.DataFrame()
+
+        # Add any partition columns that were used in the URI
         if applied_filters:
-            # Add columns removed from partitions and added to uri
             df = df.with_columns(
                 pl.lit(f.value)
                 .cast(
@@ -302,20 +368,12 @@ class ParquetTable(TableProtocol):
                 for f in applied_filters
             )
 
-        if remaining_filters:
-            filter_expr = _filters_to_expr(remaining_filters)
-            if filter_expr is not None:
-                df = df.filter(filter_expr)
-
-        if columns:
-            df = df.select(columns)
-
         return df
 
     def build_file_fragment(self, filters: list[Filter]) -> str:
         """
         Returns a file path from the base table URI with the given filters.
-        This will raise an error if the filter does not specify all partitions.
+{{ ... }}
 
         This is currently used to generate the file path used by ROAPI to infer schemas.
         """
