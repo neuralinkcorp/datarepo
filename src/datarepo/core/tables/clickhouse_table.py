@@ -269,6 +269,7 @@ class ClickHouseTable(TableProtocol):
             query=query,
             uri=self.uri,
             engine="connectorx",
+            protocol="text",
         )
 
         return df.lazy()
