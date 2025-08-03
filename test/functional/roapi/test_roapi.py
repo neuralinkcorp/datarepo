@@ -14,7 +14,7 @@ from datarepo.core import (
 )
 from datarepo.core.catalog import Catalog
 from datarepo.export.roapi import export_to_roapi_tables
-from test.roapi.data import database
+from test.functional.roapi.data import database
 
 
 @table
