@@ -42,7 +42,7 @@ def clickhouse_config() -> ClickHouseTableConfig:
     
     return ClickHouseTableConfig(
         host=connection.host,
-        port=8123,
+        port=connection.port,
         username=connection.user,
         password=connection.password,
         database=connection.database,
