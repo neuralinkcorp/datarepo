@@ -36,7 +36,7 @@ jobs:
         pytest test/functional --cov=src/datarepo --cov-report=term-missing
 
   integration-tests:
-    # needs: run-tests
+    needs: run-tests
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
