@@ -6,6 +6,7 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
+      - "9004:9004"
     environment:
       CLICKHOUSE_USER: chuser
       CLICKHOUSE_PASSWORD: chpass

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import polars as pl
 import pyarrow as pa
 
@@ -114,9 +114,9 @@ class TestClickHouseTable:
         )
         assert query == expected_query
 
-    @patch("polars.read_database_uri")
+    @patch("ibis.connect")
     def test_call_with_no_filters(
-        self, mock_read_database_uri, clickhouse_table: ClickHouseTable
+        self, mock_connection, clickhouse_table: ClickHouseTable
     ):
         """Test calling the table with no filters."""
         mock_df = pl.DataFrame(
@@ -126,24 +126,21 @@ class TestClickHouseTable:
                 "value": [10, 20, 30],
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_connect_obj = mock_connection.return_value
+        mock_sql_obj = mock_connect_obj.sql.return_value
+        mock_sql_obj.to_polars.return_value.lazy.return_value.collect.return_value = mock_df
 
         result = clickhouse_table().collect()
 
-        mock_read_database_uri.assert_called_once()
-        call_args = mock_read_database_uri.call_args[1]
-        assert call_args["query"] == "SELECT * FROM `test_db`.`test_table` "
-        assert (
-            call_args["uri"]
-            == "clickhouse://test_user:test_password@localhost:8443/test_db"
+        mock_connection.assert_called_once_with("clickhouse://test_user:test_password@localhost:8443/test_db")
+        mock_connect_obj.sql.assert_called_once_with(
+            "SELECT * FROM `test_db`.`test_table` "
         )
-        assert call_args["engine"] == "connectorx"
-
         assert result.equals(mock_df)
 
-    @patch("polars.read_database_uri")
+    @patch("ibis.connect")
     def test_call_with_filters_and_columns(
-        self, mock_read_database_uri: str, clickhouse_table: ClickHouseTable
+        self, mock_connection, clickhouse_table: ClickHouseTable
     ):
         """Test calling the table with filters and columns."""
         mock_df = pl.DataFrame(
@@ -152,29 +149,23 @@ class TestClickHouseTable:
                 "value": [10],
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_connect_obj = mock_connection.return_value
+        mock_sql_obj = mock_connect_obj.sql.return_value
+        mock_sql_obj.to_polars.return_value.lazy.return_value.collect.return_value = mock_df
 
         filters = [Filter("implant_id", "=", 1)]
         columns = ["implant_id", "value"]
         result = clickhouse_table(filters=filters, columns=columns).collect()
 
-        mock_read_database_uri.assert_called_once()
-        call_args = mock_read_database_uri.call_args[1]
-        assert (
-            call_args["query"]
-            == "SELECT `implant_id`, `value` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
+        mock_connection.assert_called_once_with("clickhouse://test_user:test_password@localhost:8443/test_db")
+        mock_connect_obj.sql.assert_called_once_with(
+            "SELECT `implant_id`, `value` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
         )
-        assert (
-            call_args["uri"]
-            == "clickhouse://test_user:test_password@localhost:8443/test_db"
-        )
-        assert call_args["engine"] == "connectorx"
-
         assert result.equals(mock_df)
 
-    @patch("polars.read_database_uri")
+    @patch("ibis.connect")
     def test_call_handles_empty_results(
-        self, mock_read_database_uri: str, clickhouse_table: ClickHouseTable
+        self, mock_connection, clickhouse_table: ClickHouseTable
     ):
         """Test that the table handles empty results correctly."""
         mock_df = pl.DataFrame(
@@ -184,7 +175,7 @@ class TestClickHouseTable:
                 "value": pl.Int64,
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_connection.return_value.sql.return_value.to_polars.return_value = mock_df
 
         filters = [Filter("implant_id", "=", 999)]
         result = clickhouse_table(filters=filters).collect()

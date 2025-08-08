@@ -11,11 +11,7 @@ from datarepo.core.tables.filters import Filter
 def clickhouse_config() -> ClickHouseTableConfig:
     """Create a ClickHouseTableConfig for the container."""
     # Get connection details from environment or use defaults
-
-    host = os.environ.get("CLICKHOUSE_HOST", "localhost")
-    port = int(os.environ.get("CLICKHOUSE_PORT", "9000"))
-
-    client = clickhouse_driver.Client.from_url(f"clickhouse://chuser:chpass@{host}:{port}/testdb")
+    client = clickhouse_driver.Client.from_url(f"clickhouse://chuser:chpass@localhost:9000/testdb")
     client.execute("""
     CREATE TABLE IF NOT EXISTS testdb.test_table (
         implant_id Int64,
@@ -37,15 +33,13 @@ def clickhouse_config() -> ClickHouseTableConfig:
     (2, '2023-01-02', 210, 'delta'),
     (3, '2023-01-03', 300, 'epsilon')
     """)
-    
-    connection = client.get_connection()
-    
+        
     return ClickHouseTableConfig(
-        host=connection.host,
-        port=connection.port,
-        username=connection.user,
-        password=connection.password,
-        database=connection.database,
+        host="localhost",
+        port="8123",
+        username="chuser",
+        password="chpass",
+        database="testdb",
     )
 
 
