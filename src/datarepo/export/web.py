@@ -96,6 +96,7 @@ def export_catalog(name: str, catalog: Catalog):
     """
     return {
         "name": name,
+        "package_name": catalog._package_name,
         "metadata": export_catalog_metadata(catalog),
         "databases": [export_database(key, catalog.db(key)) for key in catalog.dbs()],
     }

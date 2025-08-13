@@ -97,7 +97,7 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
 
   const formattedParams = formatPythonTupleOrParams(params)
 
-  let retTable = `from datarepo_catalogs import ${catalog.name}\n`
+  let retTable = `from ${catalog.package_name || 'datarepo_catalogs'} import ${catalog.name}\n`
 
   retTable += `from datarepo.core import Filter\n`
 
