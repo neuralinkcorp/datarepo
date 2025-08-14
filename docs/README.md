@@ -146,7 +146,7 @@ TPCHCatalog = Catalog(dbs)
 >>> from datarepo.core import Filter
 >>>
 >>> # Get part and supplier information
->>> part_data = TCPHCatalog.db("tpc-h").table(
+>>> part_data = TPCHCatalog.db("tpc-h").table(
 ...     "part",
 ...     (
 ...         Filter('p_partkey', 'in', [1, 2, 3, 4]),
@@ -154,7 +154,7 @@ TPCHCatalog = Catalog(dbs)
 ...     ),
 ... )
 >>>
->>> supplier_data = TCPHCatalog.db("tpc-h").table("supplier")
+>>> supplier_data = TPCHCatalog.db("tpc-h").table("supplier")
 >>>
 >>> # Join part and supplier data and select specific columns
 >>> joined_data = part_data.join(
