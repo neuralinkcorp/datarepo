@@ -194,7 +194,10 @@ class Catalog:
     """A catalog that manages multiple databases and provides access to their tables."""
 
     def __init__(
-        self, dbs: dict[str, Database], metadata: Optional[CatalogMetadata] = None
+        self,
+        dbs: dict[str, Database],
+        package_name: Optional[str] = None,
+        metadata: Optional[CatalogMetadata] = None,
     ):
         """Initialize the Catalog.
 
@@ -205,15 +208,18 @@ class Catalog:
                 dbs={
                     "my_db": ModuleDatabase(my_database_module),
                 },
+                package_name="my_package",
                 metadata=CatalogMetadata(jupyterhub_url="https://jupyterhub.example.com")
             )
             ```
 
         Args:
             dbs (dict[str, Database]): A dictionary of database names and their corresponding Database objects.
+            package_name (str | None, optional): The name of the package that contains the catalog. Defaults to None.
             metadata (Optional[CatalogMetadata], optional): Metadata for the catalog. Defaults to None.
         """
         self._dbs = dbs
+        self._package_name = package_name
         self._metadata = metadata or CatalogMetadata()
         self._global_args: dict[str, Any] | None = None
 

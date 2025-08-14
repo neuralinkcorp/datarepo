@@ -36,6 +36,7 @@ export interface ExportedCatalogMetadata {
 
 export interface ExportedCatalog {
   name: string
+  package_name: string | null
   metadata: ExportedCatalogMetadata | null
   databases: ExportedDatabase[]
 }
