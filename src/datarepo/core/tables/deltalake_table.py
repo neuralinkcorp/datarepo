@@ -345,10 +345,10 @@ def fetch_df_by_partition(
         return _empty_normalized_df(schema)
     if use_batching:
         return fetch_dfs_by_paths_batching(
-                files=files,
-                schema=schema,
-                storage_options=storage_options,
-                batch_size=batch_size
+            files=files,
+            schema=schema,
+            storage_options=storage_options,
+            batch_size=batch_size,
         )
     else:
         return fetch_dfs_by_paths(
@@ -389,6 +389,7 @@ def fetch_dfs_by_paths(
 
     return pl.concat([_normalize_df(df, schema=schema) for df in dfs])
 
+
 def fetch_dfs_by_paths_batching(
     files: list[str],
     schema: pa.Schema,
@@ -412,24 +413,25 @@ def fetch_dfs_by_paths_batching(
     def batcher(arr: list[str], batch_size: int):
         """Split array into batches of specified size."""
         for i in range(0, len(arr), batch_size):
-            yield arr[i:i + batch_size]
+            yield arr[i : i + batch_size]
 
     def read_batch(batch):
-        return pl.concat([
-            pl.read_parquet(
-                f,
-                retries=READ_PARQUET_RETRY_COUNT,
-                storage_options=storage_options,
-                hive_partitioning=True,
-            )
-            for f in batch
-        ])
+        return pl.concat(
+            [
+                pl.read_parquet(
+                    f,
+                    retries=READ_PARQUET_RETRY_COUNT,
+                    storage_options=storage_options,
+                    hive_partitioning=True,
+                )
+                for f in batch
+            ]
+        )
 
     with ThreadPoolExecutor() as executor:
         futures = [
-                executor.submit(read_batch, batch)
-                for batch in batcher(files, batch_size)
-                ]
+            executor.submit(read_batch, batch) for batch in batcher(files, batch_size)
+        ]
 
     dfs = [future.result() for future in futures]
 
