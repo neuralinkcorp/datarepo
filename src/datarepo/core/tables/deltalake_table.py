@@ -402,7 +402,7 @@ def fetch_dfs_by_paths_batching(
         files (list[str]): List of file paths to read Parquet files from.
         schema (pa.Schema): Schema to normalize the dataframes to.
         storage_options (dict[str, Any] | None, optional): Storage options for reading the Parquet files, such as S3 access credentials. Defaults to None.
-        batch_size (int ): Number of files to process per batch.
+        batch_size (int): Number of files to process per batch.
 
     Returns:
         pl.DataFrame: A Polars DataFrame containing the concatenated results of all Parquet files, normalized to the specified schema.
