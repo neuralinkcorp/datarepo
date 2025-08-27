@@ -74,7 +74,7 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
 
       for (const partition of table.partitions) {
         const value = isStringPartition(partition) ? `"${partition.value}"` : partition.value
-        filters.push(`Filter("${partition.column_name}", "=", ${value})`)
+        filters.push(`Filter("${partition.column_name}", "${partition.operator}", ${value})`)
       }
 
       /*
