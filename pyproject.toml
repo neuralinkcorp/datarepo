@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "data-repository"
-version = "0.0.1"
+version = "0.0.2"
 description = "A simple platform for complex data"
 readme = "docs/README.md"
 requires-python = ">=3.8"
