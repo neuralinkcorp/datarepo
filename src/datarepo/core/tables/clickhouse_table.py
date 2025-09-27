@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 import logging
 import polars as pl
 import pyarrow as pa
+import ibis  # type: ignore[import-untyped]
 
 from datarepo.core.dataframe import NlkDataFrame
 from datarepo.core.tables.filters import Filter, InputFilters, normalize_filters
@@ -263,12 +264,5 @@ class ClickHouseTable(TableProtocol):
             NlkDataFrame: A lazy Polars DataFrame with the requested data.
         """
         query = self._build_query(filters, columns)
-
-        # use polars read database_uri to read the result of the query
-        df = pl.read_database_uri(
-            query=query,
-            uri=self.uri,
-            engine="connectorx",
-        )
-
+        df = ibis.connect(self.uri).sql(query).to_polars()
         return df.lazy()

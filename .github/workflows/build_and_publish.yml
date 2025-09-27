@@ -33,13 +33,47 @@ jobs:
     
     - name: Run tests with coverage
       run: |
-        pytest test --cov=src/datarepo --cov-report=term-missing
+        pytest test/functional --cov=src/datarepo --cov-report=term-missing
+
+  integration-tests:
+    needs: run-tests
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Start Docker Compose
+      run: |
+        docker compose -f test/integration/resources/docker-compose.yml up -d --wait
+
+    - name: Install dependencies
+      run: |
+        python3.10 -m pip install --upgrade pip
+        python3.10 -m pip install --no-cache-dir -e ".[dev]"
+      env:
+        SKIP_STATIC_SITE_BUILD: "true"
+
+    - name: Run integration tests
+      run: |
+        pytest -rx test/integration
+      env:
+        CLICKHOUSE_HOST: localhost
+        CLICKHOUSE_PORT: 9000
+
+    - name: Stop Docker Compose
+      if: always()
+      run: docker compose -f test/integration/resources/docker-compose.yml down -v
 
   code-quality:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v4
       with:

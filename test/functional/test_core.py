@@ -7,9 +7,9 @@ import pytest
 
 from datarepo.core import ModuleDatabase
 from datarepo.core.catalog import Catalog
-from test.data import database, database2
-from test.data.database2 import frame3
-from test.data.database import frame1, frame2
+from test.functional.data import database, database2
+from test.functional.data.database2 import frame3
+from test.functional.data.database import frame1, frame2
 
 
 class TestCore(unittest.TestCase):
