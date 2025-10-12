@@ -5,7 +5,7 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import os
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, Dict, Tuple
 import warnings
 
 import boto3
@@ -18,7 +18,7 @@ from datarepo.core.dataframe import NlkDataFrame
 from datarepo.core.tables.filters import InputFilters, normalize_filters
 from datarepo.core.tables.metadata import (
     TableMetadata,
-    TableProtocol,
+    VersionedTableProtocol,
     TableSchema,
     TableColumn,
     TablePartition,
@@ -65,7 +65,7 @@ class DeltaCacheOptions:
         return opts
 
 
-class DeltalakeTable(TableProtocol):
+class DeltalakeTable(VersionedTableProtocol):
     """A table that is backed by a Delta Lake table."""
 
     def __init__(
@@ -111,6 +111,47 @@ class DeltalakeTable(TableProtocol):
             roapi_opts=roapi_opts or DeltaRoapiOptions(),
             **(table_metadata_args or {}),
         )
+
+        # for delta table version is formed as combination of uri and schema
+        self._versions: Dict[str, Tuple[str, pa.Schema]] = {
+            "v1": (uri, schema),
+        }
+
+    def add_version(
+        self, version: str, uri: str, schema: pa.Schema, **kwargs: Any
+    ) -> None:
+        """Add a new version of the table.
+
+        Args:
+            version (str): The version number of the table.
+            uri (str): The URI of the table.
+            schema (pa.Schema): The schema of the table.
+        """
+        if version in self._versions:
+            raise ValueError(f"Version {version} already exists")
+        self._versions[version] = (uri, schema)
+        self.uri = uri
+        self.schema = schema
+
+    def change_version(self, version: str):
+        """Change the current version of the table.
+
+        Args:
+            version (str): The version of the table.
+        """
+        if version not in self._versions:
+            raise ValueError(
+                f"Version {version} does not exist. Available versions: {self.get_versions()}"
+            )
+        self.uri, self.schema = self._versions[version]
+
+    def get_versions(self) -> list[str]:
+        """Get all versions of the table.
+
+        Returns:
+            list[str]: The versions of the table.
+        """
+        return list(self._versions.keys())
 
     def get_schema(self) -> TableSchema:
         """Generate and return the schema of the table, including partitions and columns.

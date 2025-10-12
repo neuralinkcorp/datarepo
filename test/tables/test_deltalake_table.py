@@ -377,6 +377,30 @@ class TestDeltalakeTable:
         expected_sorted = expected.sort("value")
         assert actual_sorted.equals(expected_sorted)
 
+    def test_versioned_table(self, delta_table_definition: DeltalakeTable):
+        """Test versioning for delta tables."""
+        delta_table_definition.add_version("v2", delta_table_definition.uri, delta_table_definition.schema)
+        assert delta_table_definition.get_versions() == ["v1", "v2"]
+ 
+        new_schema = pa.schema(
+            [
+                ("implant_id", pa.int64()),
+                ("uniq", pa.string()),
+                ("value", pa.int64()),
+            ]
+        )
+        delta_table_definition.add_version("v3", delta_table_definition.uri, new_schema)
+        assert delta_table_definition.get_versions() == ["v1", "v2", "v3"]
+
+        delta_table_definition.change_version("v1")
+        assert delta_table_definition.schema != new_schema
+
+        with pytest.raises(ValueError, match="Version v2 already exists"):
+            delta_table_definition.add_version("v2", delta_table_definition.uri, delta_table_definition.schema)
+
+        with pytest.raises(ValueError):
+            delta_table_definition.change_version("v4")
+
     """ this test is commented out until we upstream delta caching
     def test_delta_cache(
         self,

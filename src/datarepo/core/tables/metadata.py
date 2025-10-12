@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Protocol, TypedDict
+from typing import Any, Dict, Protocol, TypedDict, List
 
 from datarepo.core.dataframe.frame import NlkDataFrame
 from datarepo.core.tables.util import RoapiOptions
@@ -52,5 +52,34 @@ class TableProtocol(Protocol):
     def get_schema(self) -> TableSchema:
         """
         Returns the schema of the table, used to generate the web catalog.
+        """
+        ...
+
+
+class VersionedTableProtocol(TableProtocol):
+    """A versioned table."""
+
+    def add_version(self, version: str, **kwargs: Dict[str, Any]) -> None:
+        """Add a new version of the table.
+
+        Args:
+            version (str): The version number of the table.
+            **kwargs: Additional arguments to pass for the version.
+        """
+        ...
+
+    def change_version(self, version: str):
+        """Change the current version of the table.
+
+        Args:
+            version (str): The version of the table.
+        """
+        ...
+
+    def get_versions(self) -> List[str]:  # type: ignore[empty-body]
+        """Get all versions of the table.
+
+        Returns:
+            list[str]: Versions of the table.
         """
         ...
