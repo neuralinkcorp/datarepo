@@ -46,6 +46,41 @@ part = DeltalakeTable(
 )
 ```
 
+#### Schema versioning
+When schema or business logic evolves, older data may remain at versioned URIs (for example `s3://my-bucket/tpc-h/part/v1`). Use `schema_versions` to bind each version label to a PyArrow schema and resolve reads to `{uri}/{version}`:
+
+```python
+v1_schema = pa.schema([
+    ("p_partkey", pa.int64()),
+    ("p_name", pa.string()),
+    ("p_size", pa.int32()),
+])
+
+v2_schema = pa.schema([
+    ("p_partkey", pa.int64()),
+    ("p_name", pa.string()),
+    ("p_size", pa.int32()),
+    ("p_comment", pa.string()),
+])
+
+part = DeltalakeTable(
+    name="part",
+    uri="s3://my-bucket/tpc-h/part",
+    schema=v2_schema,
+    schema_versions={"v1": v1_schema, "v2": v2_schema},
+    default_schema_version="v2",
+)
+
+# Latest schema (v2) from s3://my-bucket/tpc-h/part/v2
+>>> df_v2 = part()
+
+# Prior schema (v1) from s3://my-bucket/tpc-h/part/v1
+>>> df_v1 = part.at_version("v1")()
+>>> df_v1_inline = part(schema_version="v1")
+```
+
+Existing tables without `schema_versions` behave exactly as before.
+
 #### Parquet tables
 ```python
 from datarepo.core import ParquetTable, Partition, PartitioningScheme
