@@ -14,6 +14,7 @@ from datarepo.core.tables.deltalake_table import (
     Filter,
     fetch_df_by_partition,
     fetch_dfs_by_paths,
+    fetch_dfs_by_paths_batching,
 )
 
 test_schema = pa.schema(
@@ -399,6 +400,76 @@ class TestDeltalakeTable:
         actual_sorted = delta_table_definition(**args).collect().sort("value")
         expected_sorted = expected.sort("value")
         assert actual_sorted.equals(expected_sorted)
+
+    def test_fetch_dfs_by_paths_batching_matches_unbatched(self, mock_pl_read_parquet):
+        schema = pa.schema([("a", pa.int64()), ("b", pa.string())])
+        files = ["df-ab.parquet", "df-ab2.parquet", "df-ab-reordered.parquet"]
+
+        unbatched = fetch_dfs_by_paths(files, schema=schema)
+        batched = fetch_dfs_by_paths_batching(files, schema=schema, batch_size=2)
+
+        assert batched.sort("a").equals(unbatched.sort("a"))
+
+    def test_fetch_df_by_partition_batching(self, mock_delta_rs_table):
+        schema = pa.schema(
+            [
+                ("implant_id", pa.int64()),
+                ("date", pa.string()),
+                ("value", pa.int64()),
+            ]
+        )
+
+        unbatched = fetch_df_by_partition(
+            dt=mock_delta_rs_table,
+            partition=[("implant_id", "=", 123), ("date", "=", "2024-01-01")],
+            schema=schema,
+        )
+        batched = fetch_df_by_partition(
+            dt=mock_delta_rs_table,
+            partition=[("implant_id", "=", 123), ("date", "=", "2024-01-01")],
+            schema=schema,
+            use_batching=True,
+            batch_size=1,
+        )
+
+        assert batched.sort("value").equals(unbatched.sort("value"))
+
+    def test_batching_lowers_peak_memory(self):
+        schema = pa.schema([("payload", pa.int64())])
+        files = [f"file-{i}.parquet" for i in range(40)]
+
+        def allocating_read(source, **kwargs):
+            return pl.DataFrame({"payload": list(range(100_000))})
+
+        def peak_bytes(reader):
+            import tracemalloc
+
+            tracemalloc.start()
+            try:
+                reader()
+                return tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+
+        with patch("polars.read_parquet", side_effect=allocating_read):
+            unbatched_peak = peak_bytes(
+                lambda: fetch_dfs_by_paths(files, schema=schema)
+            )
+            batched_peak = peak_bytes(
+                lambda: fetch_dfs_by_paths_batching(
+                    files, schema=schema, batch_size=8
+                )
+            )
+
+        assert batched_peak < unbatched_peak
+
+    def test_batch_size_must_be_positive(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            fetch_dfs_by_paths_batching(
+                ["df-ab.parquet"],
+                schema=pa.schema([("a", pa.int64())]),
+                batch_size=0,
+            )
 
     """ this test is commented out until we upstream delta caching
     def test_delta_cache(
