@@ -400,6 +400,109 @@ class TestDeltalakeTable:
         expected_sorted = expected.sort("value")
         assert actual_sorted.equals(expected_sorted)
 
+    def test_schema_version_uri_resolution(self):
+        v1_schema = pa.schema([("id", pa.int64()), ("value", pa.int64())])
+        v2_schema = pa.schema(
+            [("id", pa.int64()), ("value", pa.int64()), ("note", pa.string())]
+        )
+        table = DeltalakeTable(
+            name="signals",
+            uri="s3://bucket/neural/signals",
+            schema=v2_schema,
+            schema_versions={"v1": v1_schema, "v2": v2_schema},
+            default_schema_version="v2",
+        )
+
+        assert table.uri == "s3://bucket/neural/signals/v2"
+        assert table.schema_version == "v2"
+        assert table.at_version("v1").uri == "s3://bucket/neural/signals/v1"
+        assert table.at_version("v1").schema.equals(v1_schema)
+
+    def test_versioned_schema_reads(
+        self,
+        tmp_path: Path,
+    ):
+        base_path = tmp_path / "part"
+        v1_schema = pa.schema(
+            [
+                ("p_partkey", pa.int64()),
+                ("p_name", pa.string()),
+                ("p_size", pa.int32()),
+            ]
+        )
+        v2_schema = pa.schema(
+            [
+                ("p_partkey", pa.int64()),
+                ("p_name", pa.string()),
+                ("p_size", pa.int32()),
+                ("p_comment", pa.string()),
+            ]
+        )
+
+        v1_path = base_path / "v1"
+        v2_path = base_path / "v2"
+
+        v1_data = pl.DataFrame(
+            {
+                "p_partkey": [1, 2],
+                "p_name": ["a", "b"],
+                "p_size": [10, 20],
+            }
+        )
+        v2_data = pl.DataFrame(
+            {
+                "p_partkey": [1, 2],
+                "p_name": ["a", "b"],
+                "p_size": [10, 20],
+                "p_comment": ["old", "new"],
+            }
+        )
+
+        v1_table = DeltaTable.create(table_uri=str(v1_path), schema=v1_schema)
+        write_deltalake(v1_table, data=v1_data.to_arrow(), mode="overwrite")
+        v2_table = DeltaTable.create(table_uri=str(v2_path), schema=v2_schema)
+        write_deltalake(v2_table, data=v2_data.to_arrow(), mode="overwrite")
+
+        part = DeltalakeTable(
+            name="part",
+            uri=str(base_path),
+            schema=v2_schema,
+            schema_versions={"v1": v1_schema, "v2": v2_schema},
+            default_schema_version="v2",
+        )
+
+        v1_result = part.at_version("v1")().collect().sort("p_partkey")
+        assert list(v1_result.columns) == ["p_partkey", "p_name", "p_size"]
+        assert v1_result.equals(v1_data)
+
+        v2_result = part().collect().sort("p_partkey")
+        assert list(v2_result.columns) == [
+            "p_partkey",
+            "p_name",
+            "p_size",
+            "p_comment",
+        ]
+        assert v2_result.equals(v2_data)
+
+        inline_v1 = part(schema_version="v1").collect().sort("p_partkey")
+        assert inline_v1.equals(v1_data)
+
+    def test_at_version_requires_schema_versions(self, delta_table_definition):
+        with pytest.raises(ValueError, match="schema_versions"):
+            delta_table_definition.at_version("v1")
+
+    def test_unknown_schema_version_raises(self):
+        schema = pa.schema([("id", pa.int64())])
+        table = DeltalakeTable(
+            name="t",
+            uri="/tmp/t",
+            schema=schema,
+            schema_versions={"v1": schema},
+            default_schema_version="v1",
+        )
+        with pytest.raises(KeyError, match="v9"):
+            table.at_version("v9")
+
     """ this test is commented out until we upstream delta caching
     def test_delta_cache(
         self,
