@@ -81,12 +81,16 @@ class DeltalakeTable(TableProtocol):
         table_metadata_args: dict[str, Any] | None = None,
         stats_cols: list[str] | None = None,
         extra_cols: list[tuple[pl.Expr, str]] | None = None,
+        schema_versions: dict[str, pa.Schema] | None = None,
+        default_schema_version: str | None = None,
     ):
         """Initialize the DeltalakeTable.
 
         Args:
             name (str): table name, used as the table identifier in the DeltaTable
-            uri (str): uri of the table, e.g. "s3://bucket/path/to/table"
+            uri (str): uri of the table, e.g. "s3://bucket/path/to/table". When
+                ``schema_versions`` is set, this is the base URI and each version
+                is read from ``{uri}/{version}``.
             schema (pa.Schema): schema of the table, used to define the table structure
             description (str, optional): description of the table, used for documentation. Defaults to "".
             docs_filters (list[Filter], optional): documentation filters, used to filter the table in the documentation. Defaults to [].
@@ -96,20 +100,101 @@ class DeltalakeTable(TableProtocol):
             table_metadata_args (dict[str, Any] | None, optional): table metadata arguments, used to configure the table metadata. Defaults to None.
             stats_cols (list[str] | None, optional): statistics columns, used to define the columns that have statistics. Defaults to None.
             extra_cols (list[tuple[pl.Expr, str]] | None, optional): extra columns to add to the table, where each tuple contains a Polars expression and its type annotation. Defaults to None.
+            schema_versions (dict[str, pa.Schema] | None, optional): optional map of
+                version labels (e.g. ``"v1"``, ``"v2"``) to schemas for tables stored
+                at versioned URIs. Defaults to None.
+            default_schema_version (str | None, optional): version label from
+                ``schema_versions`` used for the default read URI and schema. When
+                ``schema_versions`` is set and this is omitted, the key whose schema
+                equals ``schema`` is used. Defaults to None.
         """
         self.name = name
-        self.uri = uri
-        self.schema = schema
+        self._base_uri = uri.rstrip("/")
+        self.schema_versions = schema_versions
         self.unique_columns = unique_columns
         self.stats_cols = stats_cols or []
         self.extra_cols = extra_cols or []
+
+        if schema_versions:
+            if default_schema_version is not None:
+                if default_schema_version not in schema_versions:
+                    raise ValueError(
+                        f"default_schema_version {default_schema_version!r} is not in "
+                        f"schema_versions keys: {sorted(schema_versions)}"
+                    )
+                active_version = default_schema_version
+            else:
+                active_version = _schema_version_for_schema(schema, schema_versions)
+                if active_version is None:
+                    raise ValueError(
+                        "schema does not match any entry in schema_versions; "
+                        "pass default_schema_version explicitly"
+                    )
+            self._schema_version = active_version
+            self.schema = schema_versions[active_version]
+        else:
+            if default_schema_version is not None:
+                raise ValueError(
+                    "default_schema_version requires schema_versions to be set"
+                )
+            self._schema_version = None
+            self.schema = schema
+
+        self._table_metadata_args = table_metadata_args or {}
 
         self.table_metadata = TableMetadata(
             table_type="DELTA_LAKE",
             description=description,
             docs_args={"filters": docs_filters, "columns": docs_columns},
             roapi_opts=roapi_opts or DeltaRoapiOptions(),
-            **(table_metadata_args or {}),
+            **self._table_metadata_args,
+        )
+
+    @property
+    def uri(self) -> str:
+        """Resolved table URI, including the schema version suffix when applicable."""
+        if self._schema_version is not None and self.schema_versions is not None:
+            return f"{self._base_uri}/{self._schema_version}"
+        return self._base_uri
+
+    @property
+    def schema_version(self) -> str | None:
+        """Active schema version label, or None when versioning is disabled."""
+        return self._schema_version
+
+    def at_version(self, version: str) -> DeltalakeTable:
+        """Return a table bound to a specific schema version and URI suffix.
+
+        Args:
+            version (str): key from ``schema_versions`` (e.g. ``"v1"``).
+
+        Returns:
+            DeltalakeTable: a new table instance using the version's schema and URI.
+        """
+        if self.schema_versions is None:
+            raise ValueError(
+                "at_version() requires schema_versions to be set on DeltalakeTable"
+            )
+        if version not in self.schema_versions:
+            raise KeyError(
+                f"Unknown schema version {version!r}. "
+                f"Known versions: {sorted(self.schema_versions)}"
+            )
+
+        return DeltalakeTable(
+            name=self.name,
+            uri=self._base_uri,
+            schema=self.schema_versions[version],
+            description=self.table_metadata.description,
+            docs_filters=self.table_metadata.docs_args.get("filters", []),
+            docs_columns=self.table_metadata.docs_args.get("columns"),
+            roapi_opts=self.table_metadata.roapi_opts,
+            unique_columns=self.unique_columns,
+            table_metadata_args=self._table_metadata_args,
+            stats_cols=self.stats_cols,
+            extra_cols=self.extra_cols,
+            schema_versions=self.schema_versions,
+            default_schema_version=version,
         )
 
     def get_schema(self) -> TableSchema:
@@ -167,6 +252,8 @@ class DeltalakeTable(TableProtocol):
         endpoint_url: str | None = None,
         timeout: str | None = None,
         cache_options: DeltaCacheOptions | None = None,
+        schema_version: str | None = None,
+        delta_version: int | None = None,
         **kwargs: Any,
     ) -> NlkDataFrame:
         """Fetch a dataframe from the Delta Lake table.
@@ -178,10 +265,17 @@ class DeltalakeTable(TableProtocol):
             endpoint_url (str | None, optional): endpoint URL for S3 access. Defaults to None.
             timeout (str | None, optional): timeout for S3 access. Defaults to None.
             cache_options (DeltaCacheOptions | None, optional): cache options for the Delta Lake table. Defaults to None.
+            schema_version (str | None, optional): when ``schema_versions`` is configured,
+                read from ``{uri}/{schema_version}`` using that version's schema.
+                Defaults to None (use the table's bound version).
+            delta_version (int | None, optional): Delta Lake transaction log version for
+                time travel within the resolved table URI. Defaults to None (latest).
 
         Returns:
             NlkDataFrame: a dataframe containing the data from the Delta Lake table, filtered and selected according to the provided parameters.
         """
+        table = self.at_version(schema_version) if schema_version else self
+
         storage_options = {
             "timeout": timeout or DEFAULT_TIMEOUT,
             **get_storage_options(
@@ -193,9 +287,11 @@ class DeltalakeTable(TableProtocol):
                 **storage_options,
                 **cache_options.to_storage_options(),
             }
-        dt = self.delta_table(storage_options=storage_options)
+        dt = table.delta_table(
+            storage_options=storage_options, version=delta_version
+        )
 
-        return self.construct_df(dt=dt, filters=filters, columns=columns)
+        return table.construct_df(dt=dt, filters=filters, columns=columns)
 
     def construct_df(
         self,
@@ -420,6 +516,15 @@ def _normalize_df(
         .with_columns([pl.col(col).cast(dtype) for col, dtype in polars_schema.items()])
         .select(schema_columns)
     )
+
+
+def _schema_version_for_schema(
+    schema: pa.Schema, schema_versions: dict[str, pa.Schema]
+) -> str | None:
+    for version, version_schema in schema_versions.items():
+        if version_schema.equals(schema):
+            return version
+    return None
 
 
 def datafusion_predicate_from_filters(
