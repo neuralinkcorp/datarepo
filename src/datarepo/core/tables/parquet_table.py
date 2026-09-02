@@ -164,6 +164,7 @@ class ParquetTable(TableProtocol):
         roapi_opts: RoapiOptions | None = None,
         parquet_file_name: str = "df.parquet",
         table_metadata_args: dict[str, Any] | None = None,
+        schema: dict[str, pl.DataType] | None = None,
     ):
         """Initialize the ParquetTable.
 
@@ -187,6 +188,10 @@ class ParquetTable(TableProtocol):
                 Defaults to None.
             parquet_file_name (str, optional): parquet file name to use when building file fragments.
             table_metadata_args (dict[str, Any] | None, optional): additional metadata arguments for the table.
+            schema (dict[str, pl.DataType] | None, optional): explicit schema for the table.
+                When provided, allows scan_parquet to succeed even when the S3 path
+                contains no files (returns an empty DataFrame with this schema).
+                Defaults to None.
 
         Raises:
             ValueError: if the partitioning_scheme is not a valid PartitioningScheme.
@@ -198,6 +203,7 @@ class ParquetTable(TableProtocol):
         self.uri = uri
         self.partitioning = partitioning
         self.partitioning_scheme = partitioning_scheme
+        self.schema = schema
 
         self.table_metadata = TableMetadata(
             table_type="PARQUET",
@@ -233,7 +239,7 @@ class ParquetTable(TableProtocol):
             table: NlkDataFrame = self(**docs_args)
             columns = [
                 TableColumn(
-                    column=key,
+                    name=key,
                     type=type.__str__(),
                     readonly=False,
                     filter_only=False,
@@ -276,15 +282,19 @@ class ParquetTable(TableProtocol):
             endpoint_url=endpoint_url,
         )
 
+        hive_schema = (
+            {partition.column: partition.col_type for partition in remaining_partitions}
+            if remaining_partitions
+            else None
+        )
+
         df = pl.scan_parquet(
             uri,
             hive_partitioning=len(remaining_partitions) > 0,
-            hive_schema={
-                partition.column: partition.col_type
-                for partition in remaining_partitions
-            },
             allow_missing_columns=True,
             storage_options=storage_options,
+            hive_schema=hive_schema,
+            schema=self.schema,
         )
 
         if applied_filters:

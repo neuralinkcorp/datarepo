@@ -28,7 +28,7 @@ class TablePartition(TypedDict):
 
 
 class TableColumn(TypedDict):
-    column: str
+    name: str
     type: str
     readonly: bool
     filter_only: bool

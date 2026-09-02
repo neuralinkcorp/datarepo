@@ -11,8 +11,11 @@ from datarepo.core.tables import (
     TableProtocol,
     ClickHouseTable,
     ClickHouseTableConfig,
+    make_clickhouse_config,
     table,
 )
+from datarepo.core.config import set_default_aws_profile
+
 
 __all__ = [
     "DeltalakeTable",
@@ -29,4 +32,6 @@ __all__ = [
     "TableProtocol",
     "ClickHouseTable",
     "ClickHouseTableConfig",
+    "make_clickhouse_config",
+    "set_default_aws_profile",
 ]

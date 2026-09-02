@@ -102,8 +102,7 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
   retTable += `from datarepo.core import Filter\n`
 
   retTable += `\n`
-  retTable += `df = ${catalog.name}.db("${database.name}").table${formattedParams}\n`
-  retTable += `print(df.collect())`
+  retTable += `df = ${catalog.name}.db("${database.name}").table${formattedParams}.collect()`
 
   return retTable.trim()
 }

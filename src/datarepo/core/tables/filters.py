@@ -9,6 +9,8 @@ FilterOperator = Literal[
     ">=",
     "in",
     "not in",
+    "is null",
+    "is not null",
     "contains",
     "includes",
     "includes",

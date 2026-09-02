@@ -1,3 +1,6 @@
+from unittest.mock import MagicMock, patch
+
+from botocore.exceptions import ProfileNotFound
 import pyarrow as pa
 import pytest
 
@@ -10,6 +13,7 @@ from datarepo.core.tables.util import (
     Filter,
     filter_to_sql_expr,
     filters_to_sql_predicate,
+    get_storage_options,
 )
 
 test_schema = pa.schema(
@@ -138,3 +142,24 @@ class TestUtil:
         self, filters: InputFilters, expected: NormalizedFilters
     ):
         assert normalize_filters(filters) == expected
+
+    @patch("datarepo.core.tables.util.datarepo_config")
+    @patch("datarepo.core.tables.util.boto3.Session")
+    def test_get_storage_options_skips_missing_profile(
+        self, mock_session: MagicMock, mock_config: MagicMock
+    ):
+        """A missing AWS profile is ignored instead of aborting credential lookup."""
+        mock_config.DEFAULT_AWS_PROFILE = "missing-profile"
+
+        default_session = MagicMock()
+        default_session.get_credentials.return_value = None
+        mock_session.side_effect = [
+            default_session,
+            ProfileNotFound(profile="missing-profile"),
+        ]
+
+        options = get_storage_options()
+
+        assert options == {}
+        assert mock_session.call_count == 2
+        mock_session.assert_called_with(profile_name="missing-profile")

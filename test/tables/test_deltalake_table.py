@@ -273,6 +273,29 @@ class TestDeltalakeTable:
                     }
                 ),
             ),
+            # Test that the LAST duplicate row is kept (not the first)
+            # This is important for backfills where later data may be corrected
+            (
+                pl.DataFrame(
+                    {
+                        "implant_id": [5956, 5956, 5956, 5956],
+                        "date": ["2024-01-01"] * 4,
+                        "uniq": ["1", "1", "2", "2"],
+                        "value": [100, 200, 300, 400],
+                    }
+                ),
+                {"filters": [Filter("implant_id", "=", 5956)]},
+                pl.DataFrame(
+                    {
+                        # Should keep value=200 (last occurrence of uniq="1")
+                        # and value=400 (last occurrence of uniq="2")
+                        "implant_id": [5956] * 2,
+                        "date": ["2024-01-01"] * 2,
+                        "uniq": ["1", "2"],
+                        "value": [200, 400],
+                    }
+                ),
+            ),
             # Same but with string filters
             (
                 pl.DataFrame(

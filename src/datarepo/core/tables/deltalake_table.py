@@ -37,6 +37,24 @@ DEFAULT_TIMEOUT = "150s"
 DeltaInputFilters: TypeAlias = InputFilters | str
 
 
+def get_delta_storage_options(
+    boto3_session: boto3.Session | None = None,
+    endpoint_url: str | None = None,
+    timeout: str | None = None,
+    cache_options: DeltaCacheOptions | None = None,
+) -> dict[str, Any]:
+    storage_options = {
+        "timeout": timeout or DEFAULT_TIMEOUT,
+        **get_storage_options(boto3_session=boto3_session, endpoint_url=endpoint_url),
+    }
+    if cache_options is not None:
+        storage_options = {
+            **storage_options,
+            **cache_options.to_storage_options(),
+        }
+    return storage_options
+
+
 @dataclass
 class DeltaCacheOptions:
     # Path to the directory where files are cached. This can be the same for all tables
@@ -81,6 +99,7 @@ class DeltalakeTable(TableProtocol):
         table_metadata_args: dict[str, Any] | None = None,
         stats_cols: list[str] | None = None,
         extra_cols: list[tuple[pl.Expr, str]] | None = None,
+        partition_columns: list[str] | None = None,
     ):
         """Initialize the DeltalakeTable.
 
@@ -96,6 +115,7 @@ class DeltalakeTable(TableProtocol):
             table_metadata_args (dict[str, Any] | None, optional): table metadata arguments, used to configure the table metadata. Defaults to None.
             stats_cols (list[str] | None, optional): statistics columns, used to define the columns that have statistics. Defaults to None.
             extra_cols (list[tuple[pl.Expr, str]] | None, optional): extra columns to add to the table, where each tuple contains a Polars expression and its type annotation. Defaults to None.
+            partition_columns (list[str] | None, optional): partition columns for the table. If provided, get_schema() will use these instead of querying the remote Delta table. This allows catalog export to work even when the table doesn't exist yet. Defaults to None.
         """
         self.name = name
         self.uri = uri
@@ -103,6 +123,7 @@ class DeltalakeTable(TableProtocol):
         self.unique_columns = unique_columns
         self.stats_cols = stats_cols or []
         self.extra_cols = extra_cols or []
+        self.partition_columns = partition_columns
 
         self.table_metadata = TableMetadata(
             table_type="DELTA_LAKE",
@@ -112,15 +133,30 @@ class DeltalakeTable(TableProtocol):
             **(table_metadata_args or {}),
         )
 
-    def get_schema(self) -> TableSchema:
+    def get_schema(
+        self,
+        boto3_session: boto3.Session | None = None,
+        endpoint_url: str | None = None,
+        timeout: str | None = None,
+        cache_options: DeltaCacheOptions | None = None,
+    ) -> TableSchema:
         """Generate and return the schema of the table, including partitions and columns.
 
         Returns:
             TableSchema: table schema containing partition and column information.
         """
-        dt = self.delta_table()
+        if self.partition_columns is not None:
+            partition_cols = self.partition_columns
+        else:
+            storage_options = get_delta_storage_options(
+                boto3_session=boto3_session,
+                endpoint_url=endpoint_url,
+                timeout=timeout,
+            )
+            dt = self.delta_table(storage_options=storage_options)
+            partition_cols = dt.metadata().partition_columns
+
         schema = self.schema
-        partition_cols = dt.metadata().partition_columns
         filters = {
             f.column: f.value
             for f in self.table_metadata.docs_args.get("filters", [])
@@ -136,7 +172,7 @@ class DeltalakeTable(TableProtocol):
         ]
         columns = [
             TableColumn(
-                column=name,
+                name=name,
                 type=str(schema.field(name).type),
                 readonly=False,
                 filter_only=False,
@@ -146,7 +182,7 @@ class DeltalakeTable(TableProtocol):
         ]
         columns += [
             TableColumn(
-                column=expr.meta.output_name(),
+                name=expr.meta.output_name(),
                 type=expr_type,
                 readonly=True,
                 filter_only=False,
@@ -182,17 +218,12 @@ class DeltalakeTable(TableProtocol):
         Returns:
             NlkDataFrame: a dataframe containing the data from the Delta Lake table, filtered and selected according to the provided parameters.
         """
-        storage_options = {
-            "timeout": timeout or DEFAULT_TIMEOUT,
-            **get_storage_options(
-                boto3_session=boto3_session, endpoint_url=endpoint_url
-            ),
-        }
-        if cache_options is not None:
-            storage_options = {
-                **storage_options,
-                **cache_options.to_storage_options(),
-            }
+        storage_options = get_delta_storage_options(
+            boto3_session=boto3_session,
+            endpoint_url=endpoint_url,
+            timeout=timeout,
+            cache_options=cache_options,
+        )
         dt = self.delta_table(storage_options=storage_options)
 
         return self.construct_df(dt=dt, filters=filters, columns=columns)
@@ -272,9 +303,19 @@ class DeltalakeTable(TableProtocol):
                     for col in curr_schema
                     if curr_schema[col] == pl.String
                 }
+                # NOTE: Using .filter() + .is_last_distinct() instead of the
+                # .unique() API as due to a polars bug that corrupts very large
+                # dataframes, causing panics on some subsequent operations with
+                # the dataframe (Specifically, `PanicException: polars' maximum
+                # length reached.`). This is also faster.
+                #
+                # .is_last_distinct() was chosen such that later rows are kept
+                # instead of earlier ones. This is useful for backfills
+                # backfill where the underlying raw data may have been updated
+                # due to a migration.
                 frame = (
                     frame.cast(cat_schema)  # type: ignore[arg-type]
-                    .unique(subset=self.unique_columns, maintain_order=True)
+                    .filter(pl.struct(self.unique_columns).is_last_distinct())
                     .cast(curr_schema)  # type: ignore[arg-type]
                 )
 

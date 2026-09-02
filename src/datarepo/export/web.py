@@ -1,6 +1,7 @@
 from datarepo.core.catalog.catalog import Catalog, Database
 from datarepo.core.tables.deltalake_table import DeltalakeTable
-from datarepo.core.tables.metadata import TableProtocol
+from datarepo.core.tables.metadata import TableColumn, TablePartition, TableProtocol
+from datarepo.core.tables.util import Filter
 import json
 import tempfile
 import subprocess
@@ -10,10 +11,72 @@ import sys
 import logging
 import shutil
 import importlib.resources
+import pyarrow as pa
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger(__name__)
+
+
+def _schema_from_attribute(
+    table: TableProtocol,
+) -> tuple[list[TablePartition], list[TableColumn]] | None:
+    """Derive partitions and columns from the table's in-repo schema attribute.
+
+    Uses the pa.Schema defined on the table object. Partition columns come from
+    ``partition_columns`` when set, otherwise from docs_filters. Avoids any S3
+    or remote data scans.
+
+    Returns None if the table doesn't have a pa.Schema attribute.
+    """
+    schema = getattr(table, "schema", None)
+    if not isinstance(schema, pa.Schema):
+        return None
+
+    table_info = table.table_metadata
+    docs_filters = table_info.docs_args.get("filters", [])
+    filter_values = {f.column: f.value for f in docs_filters if isinstance(f, Filter)}
+    partition_columns = getattr(table, "partition_columns", None)
+    if partition_columns is not None:
+        partition_col_names = list(partition_columns)
+    else:
+        partition_col_names = list(filter_values.keys())
+    stats_cols = getattr(table, "stats_cols", [])
+
+    partitions = [
+        TablePartition(
+            column_name=col,
+            type_annotation=str(schema.field(col).type),
+            value=filter_values.get(col),
+        )
+        for col in partition_col_names
+        if col in schema.names
+    ]
+
+    columns = [
+        TableColumn(
+            name=col_name,
+            type=str(schema.field(col_name).type),
+            readonly=False,
+            filter_only=False,
+            has_stats=col_name in partition_col_names or col_name in stats_cols,
+        )
+        for col_name in schema.names
+    ]
+
+    extra_cols = getattr(table, "extra_cols", [])
+    columns += [
+        TableColumn(
+            name=expr.meta.output_name(),
+            type=expr_type,
+            readonly=True,
+            filter_only=False,
+            has_stats=False,
+        )
+        for expr, expr_type in extra_cols
+    ]
+
+    return partitions, columns
 
 
 def export_table(name: str, table: TableProtocol):
@@ -29,8 +92,14 @@ def export_table(name: str, table: TableProtocol):
     """
     table_info = table.table_metadata
 
-    schema = table.get_schema()
-    partitions, columns = schema.partitions, schema.columns
+    # Derive schema from the table's in-repo schema attribute when available,
+    # avoiding S3 scans during CI builds
+    result = _schema_from_attribute(table)
+    if result is not None:
+        partitions, columns = result
+    else:
+        schema = table.get_schema()
+        partitions, columns = schema.partitions, schema.columns
 
     return {
         "name": name,
@@ -43,6 +112,7 @@ def export_table(name: str, table: TableProtocol):
         "latency_info": table_info.latency_info,
         "example_notebook": table_info.example_notebook,
         "data_input": table_info.data_input,
+        "uri": table.uri if hasattr(table, "uri") else None,
     }
 
 
