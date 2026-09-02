@@ -1,11 +1,40 @@
+import os
+
 import pytest
 from unittest.mock import patch, MagicMock
 import polars as pl
 import pyarrow as pa
 
-from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
+from datarepo.core.tables.clickhouse_table import (
+    ClickHouseTable,
+    ClickHouseTableConfig,
+    make_clickhouse_config,
+)
 from datarepo.core.tables.filters import Filter
 from datarepo.core.tables.metadata import TableSchema
+
+
+class TestMakeClickHouseConfig:
+    def test_defaults_match_http_port(self, monkeypatch: pytest.MonkeyPatch):
+        """Unset env uses HTTP 8123, not TLS 8443."""
+        for key in (
+            "CLICKHOUSE_HOST",
+            "CLICKHOUSE_PORT",
+            "CLICKHOUSE_USER",
+            "CLICKHOUSE_PASSWORD",
+            "CLICKHOUSE_DATABASE",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+        config = make_clickhouse_config()
+
+        assert config.host == "localhost"
+        assert config.port == 8123
+        assert config.username == "default"
+        assert config.password == ""
+        assert config.database == "default"
+        assert config.secure is False
+        assert config.verify is False
 
 
 class TestClickHouseTable:
@@ -18,6 +47,9 @@ class TestClickHouseTable:
             username="test_user",
             password="test_password",
             database="test_db",
+            table_name="test_table",
+            secure=True,
+            verify=True,
         )
 
     @pytest.fixture
@@ -45,7 +77,7 @@ class TestClickHouseTable:
 
         assert isinstance(schema, TableSchema)
         assert len(schema.columns) == 5
-        assert schema.columns[0]["column"] == "implant_id"
+        assert schema.columns[0]["name"] == "implant_id"
         assert schema.columns[0]["type"] == "int64"
         assert schema.columns[0]["has_stats"] is False
         assert schema.partitions == []
@@ -56,6 +88,21 @@ class TestClickHouseTable:
 
         expected_query = "SELECT * FROM `test_db`.`test_table` "
         assert query == expected_query
+
+    def test_build_query_falls_back_to_self_name(self):
+        """SQL uses ClickHouseTable.name when config.table_name is unset."""
+        table = ClickHouseTable(
+            name="logical_name",
+            schema=pa.schema([("value", pa.int64())]),
+            config=ClickHouseTableConfig(
+                host="localhost",
+                database="test_db",
+            ),
+        )
+
+        query = table._build_query()
+
+        assert query == "SELECT * FROM `test_db`.`logical_name` "
 
     def test_build_query_with_columns(self, clickhouse_table: ClickHouseTable):
         """Test query building with specific columns."""
@@ -114,11 +161,21 @@ class TestClickHouseTable:
         )
         assert query == expected_query
 
-    @patch("polars.read_database_uri")
+    @patch.dict(
+        os.environ,
+        {
+            "CLICKHOUSE_HOST": "from-env",
+            "CLICKHOUSE_PORT": "9000",
+            "CLICKHOUSE_USER": "env_user",
+            "CLICKHOUSE_PASSWORD": "env_password",
+            "CLICKHOUSE_DATABASE": "env_db",
+        },
+    )
+    @patch("clickhouse_connect.get_client")
     def test_call_with_no_filters(
-        self, mock_read_database_uri, clickhouse_table: ClickHouseTable
+        self, mock_get_client, clickhouse_table: ClickHouseTable
     ):
-        """Test calling the table with no filters."""
+        """Test calling the table with no filters uses stored config, not env."""
         mock_df = pl.DataFrame(
             {
                 "implant_id": [1, 2, 3],
@@ -126,24 +183,31 @@ class TestClickHouseTable:
                 "value": [10, 20, 30],
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_client = MagicMock()
+        mock_client.query_arrow.return_value = mock_df.to_arrow()
+        mock_get_client.return_value = mock_client
 
         result = clickhouse_table().collect()
 
-        mock_read_database_uri.assert_called_once()
-        call_args = mock_read_database_uri.call_args[1]
-        assert call_args["query"] == "SELECT * FROM `test_db`.`test_table` "
-        assert (
-            call_args["uri"]
-            == "clickhouse://test_user:test_password@localhost:8443/test_db"
+        mock_get_client.assert_called_once_with(
+            host="localhost",
+            port=8443,
+            username="test_user",
+            password="test_password",
+            database="test_db",
+            secure=True,
+            verify=True,
+            settings={},
         )
-        assert call_args["engine"] == "connectorx"
+        mock_client.query_arrow.assert_called_once_with(
+            "SELECT * FROM `test_db`.`test_table` "
+        )
 
         assert result.equals(mock_df)
 
-    @patch("polars.read_database_uri")
+    @patch("clickhouse_connect.get_client")
     def test_call_with_filters_and_columns(
-        self, mock_read_database_uri: str, clickhouse_table: ClickHouseTable
+        self, mock_get_client: MagicMock, clickhouse_table: ClickHouseTable
     ):
         """Test calling the table with filters and columns."""
         mock_df = pl.DataFrame(
@@ -152,29 +216,33 @@ class TestClickHouseTable:
                 "value": [10],
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_client = MagicMock()
+        mock_client.query_arrow.return_value = mock_df.to_arrow()
+        mock_get_client.return_value = mock_client
 
         filters = [Filter("implant_id", "=", 1)]
         columns = ["implant_id", "value"]
         result = clickhouse_table(filters=filters, columns=columns).collect()
 
-        mock_read_database_uri.assert_called_once()
-        call_args = mock_read_database_uri.call_args[1]
-        assert (
-            call_args["query"]
-            == "SELECT `implant_id`, `value` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
+        mock_get_client.assert_called_once_with(
+            host="localhost",
+            port=8443,
+            username="test_user",
+            password="test_password",
+            database="test_db",
+            secure=True,
+            verify=True,
+            settings={},
         )
-        assert (
-            call_args["uri"]
-            == "clickhouse://test_user:test_password@localhost:8443/test_db"
+        mock_client.query_arrow.assert_called_once_with(
+            "SELECT `implant_id`, `value` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
         )
-        assert call_args["engine"] == "connectorx"
 
         assert result.equals(mock_df)
 
-    @patch("polars.read_database_uri")
+    @patch("clickhouse_connect.get_client")
     def test_call_handles_empty_results(
-        self, mock_read_database_uri: str, clickhouse_table: ClickHouseTable
+        self, mock_get_client: MagicMock, clickhouse_table: ClickHouseTable
     ):
         """Test that the table handles empty results correctly."""
         mock_df = pl.DataFrame(
@@ -184,7 +252,9 @@ class TestClickHouseTable:
                 "value": pl.Int64,
             }
         )
-        mock_read_database_uri.return_value = mock_df
+        mock_client = MagicMock()
+        mock_client.query_arrow.return_value = mock_df.to_arrow()
+        mock_get_client.return_value = mock_client
 
         filters = [Filter("implant_id", "=", 999)]
         result = clickhouse_table(filters=filters).collect()
@@ -193,3 +263,37 @@ class TestClickHouseTable:
         assert "implant_id" in result.columns
         assert "date" in result.columns
         assert "value" in result.columns
+
+    @patch("clickhouse_connect.get_client")
+    def test_call_uses_override_config(
+        self, mock_get_client: MagicMock, clickhouse_table: ClickHouseTable
+    ):
+        """An explicit config argument wins over the table's stored config."""
+        mock_df = pl.DataFrame({"implant_id": [1]})
+        mock_client = MagicMock()
+        mock_client.query_arrow.return_value = mock_df.to_arrow()
+        mock_get_client.return_value = mock_client
+
+        override = ClickHouseTableConfig(
+            host="other-host",
+            port=8123,
+            username="other_user",
+            password="other_password",
+            database="other_db",
+            table_name="other_table",
+        )
+        clickhouse_table(config=override).collect()
+
+        mock_get_client.assert_called_once_with(
+            host="other-host",
+            port=8123,
+            username="other_user",
+            password="other_password",
+            database="other_db",
+            secure=False,
+            verify=False,
+            settings={},
+        )
+        mock_client.query_arrow.assert_called_once_with(
+            "SELECT * FROM `other_db`.`other_table` "
+        )

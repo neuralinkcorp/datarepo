@@ -171,24 +171,8 @@ def _export_clickhouse_table(
         dict[str, Any] | None: A dictionary representing the ROAPI table configuration,
         or None if the table is not supported for ROAPI export.
     """
-    roapi_opts = table.table_metadata.roapi_opts or RoapiOptions()
-
-    if roapi_opts.disable:
-        return None
-
-    table_config = {
-        "name": roapi_opts.override_name or name,
-        "uri": table.uri,
-        "option": {
-            # based on https://roapi.github.io/docs/config/databases.html
-            # clickhouse should be supported by connectorx
-            "format": "clickhouse",
-            "use_memory_table": roapi_opts.use_memory_table,
-            "table": table.name,
-        },
-    }
-
-    return _with_reload_interval(table_config, roapi_opts)
+    # ROAPI does not support 'clickhouse' as a table format yet.
+    return None
 
 
 def _with_reload_interval(

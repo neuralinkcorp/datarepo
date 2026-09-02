@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "data-repository"
-version = "0.0.2"
+version = "0.1.0"
 description = "A simple platform for complex data"
 readme = "docs/README.md"
 requires-python = ">=3.8"
@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "boto3>=1.26.20",
+    "clickhouse-connect>=0.7.0",
     "deltalake>=0.25.4, <1", # need to upgrade with https://delta-io.github.io/delta-rs/upgrade-guides/guide-1.0.0/
     "polars>=1.9.0, <1.14.0", # 1.15 fails due to hive_paritioning error, https://github.com/pola-rs/polars/pull/19902, 1.14 has a CI failure that needs investigation
     "pyarrow>=17.0.0",
@@ -34,9 +35,9 @@ dev = [
     "pytest>=7.0.0",
     "mkdocs-material>=9.6.14",
     "pytest-cov>=4.0.0",
-    "black>=23.0.0",
+    "black>=25.1.0,<26",
     "flake8>=6.0.0",
-    "mypy>=1.0.0",
+    "mypy>=1.0.0,<2",
     "boto3-stubs>=1.39.0",
     "pyarrow-stubs>=20.0.0",
 ]
@@ -76,6 +77,10 @@ metadata-version = "2.1"
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.black]
+target-version = ["py310"]
+line-length = 88
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -69,7 +69,7 @@ class FunctionTable(TableProtocol):
             fallback_table = self(**self.table_metadata.docs_args)
             columns = [
                 TableColumn(
-                    column=key,
+                    name=key,
                     type=type.__str__(),
                     readonly=False,
                     filter_only=False,

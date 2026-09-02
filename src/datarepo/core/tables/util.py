@@ -4,10 +4,12 @@ from typing import Any, NamedTuple, Optional
 
 import logging
 import boto3
+from botocore.exceptions import BotoCoreError
 import polars as pl
 import pyarrow as pa
 
 from datarepo.core.tables.filters import Filter, NormalizedFilters
+from datarepo.core import config as datarepo_config
 
 
 logger = logging.getLogger(__name__)
@@ -79,8 +81,20 @@ def get_storage_options(
     if endpoint_url is not None:
         storage_options["aws_endpoint_url"] = endpoint_url
 
+    if boto3_session is None:
+        boto3_session = boto3.Session()
+
     if boto3_session is not None:
         creds = boto3_session.get_credentials()
+        if creds is None and datarepo_config.DEFAULT_AWS_PROFILE is not None:
+            try:
+                boto3_session = boto3.Session(
+                    profile_name=datarepo_config.DEFAULT_AWS_PROFILE
+                )
+                creds = boto3_session.get_credentials()
+            except BotoCoreError:
+                # Skip session-load errors (missing profile, unreadable config, etc.)
+                pass
         if creds is not None:
             storage_options = {
                 **storage_options,
@@ -94,6 +108,8 @@ def get_storage_options(
                 "Boto3 session provided but no credentials found. "
                 "Storage options will not include AWS credentials."
             )
+    else:
+        logger.error("Failed to create boto3 session automatically.")
 
     # Storage options passed to delta-rs need to be not null
     storage_options = {k: v for k, v in storage_options.items() if v}
@@ -210,6 +226,9 @@ def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
     ):
         value_str = value_to_sql_expr(f.value, column_type)
         return f"({column} {f.operator} {value_str})"
+
+    elif f.operator in ("is null", "is not null"):
+        return f"({column} {f.operator})"
 
     elif f.operator == "contains":
         assert isinstance(f.value, str)
