@@ -79,7 +79,6 @@ PR_ROUTES = {
         "user": {"login": "zack-dev-cm"},
         "head": {"sha": "abc"},
     },
-    "/user": {"login": "code-review-bot[bot]"},
     "/repos/neuralinkcorp/datarepo/pulls/12/reviews": [],
     "/repos/neuralinkcorp/datarepo/pulls/12/files": [
         {
@@ -266,6 +265,19 @@ def test_skip_draft_and_existing_review(reviewer):
         head_sha="aaa",
     )
     assert own and "review bot" in own
+
+
+def test_resolve_bot_login_prefers_env_then_slug(reviewer):
+    github = FakeGitHub({})
+    assert (
+        reviewer.resolve_bot_login({"REVIEW_BOT_LOGIN": "custom[bot]"}, github)
+        == "custom[bot]"
+    )
+    assert (
+        reviewer.resolve_bot_login({"APP_SLUG": "neuralink-code-review-bot"}, github)
+        == "neuralink-code-review-bot[bot]"
+    )
+    assert reviewer.resolve_bot_login({}, github) == "code-review-bot[bot]"
 
 
 def test_run_skips_without_secrets(reviewer):
