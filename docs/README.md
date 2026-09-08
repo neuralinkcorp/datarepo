@@ -46,163 +46,102 @@ Data engineering should be simple. That means:
 
 ## Quick start
 
-Install the latest version with:
+Install the package in a virtual environment:
 
 ```bash
-pip install data-repository
+python3 -m venv .venv
+.venv/bin/python -m pip install data-repository
 ```
 
-### Create a table and catalog
+Save the following as `local_quickstart.py` and run it with
+`AWS_EC2_METADATA_DISABLED=true .venv/bin/python local_quickstart.py` on Linux.
+The environment setting prevents EC2 metadata discovery: this version asks boto3
+for storage options even for local files. A missing-credentials log is harmless
+for this local example. It writes a small synthetic Parquet file,
+filters parts, and joins them to a function-backed supplier table. No bucket,
+server, account or credentials are needed. Both inputs use equal-length columns;
+`part_id` and `supplier_id` are distinct keys.
 
-First, create a module to define your tables (e.g., `tpch_tables.py`):
+The runnable source is [examples/local_quickstart.py](examples/local_quickstart.py).
+Tests check this embedded source and the displayed output for drift.
 
+<!-- local-quickstart-code -->
 ```python
-# tpch_tables.py
-from datarepo.core import (
-    DeltalakeTable,
-    ParquetTable,
-    Filter,
-    table,
-    NlkDataFrame,
-    Partition,
-    PartitioningScheme,
-)
-import pyarrow as pa
+"""Run a local Parquet query and join using synthetic data; no credentials needed."""
+
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import polars as pl
 
-# Delta Lake backed table
-part = DeltalakeTable(
-    name="part",
-    uri="s3://my-bucket/tpc-h/part",
-    schema=pa.schema(
-        [
-            ("p_partkey", pa.int64()),
-            ("p_name", pa.string()),
-            ("p_mfgr", pa.string()),
-            ("p_brand", pa.string()),
-            ("p_type", pa.string()),
-            ("p_size", pa.int32()),
-            ("p_container", pa.string()),
-            ("p_retailprice", pa.decimal128(12, 2)),
-            ("p_comment", pa.string()),
-        ]
-    ),
-    docs_filters=[
-        Filter("p_partkey", "=", 1),
-        Filter("p_brand", "=", "Brand#1"),
-    ],
-    unique_columns=["p_partkey"],
-    description="""
-    Part information from the TPC-H benchmark.
-    Contains details about parts including name, manufacturer, brand, and retail price.
-    """,
-    table_metadata_args={
-        "data_input": "Part catalog data from manufacturing systems, updated daily",
-        "latency_info": "Daily batch updates from manufacturing ERP system",
-        "example_notebook": "https://example.com/notebooks/part_analysis.ipynb",
-    },
-)
+from datarepo.core import Filter, NlkDataFrame, ParquetTable, table
 
-# Table defined as a function
-@table(
-    data_input="Supplier master data from vendor management system <code>/api/suppliers/master</code> endpoint",
-    latency_info="Updated weekly by the supplier_master_sync DAG on Airflow",
-)
-def supplier() -> NlkDataFrame:
-    """Supplier information from the TPC-H benchmark."""
-    data = {
-        "s_suppkey": [1, 2, 3, 4, 5],
-        "s_name": [
-            "Supplier#1",
-            "Supplier#2",
-        ],
-        "s_address": [
-            "123 Main St",
-            "456 Oak Ave",
-        ],
-        "s_nationkey": [1, 1],
-        "s_phone": ["555-0001", "555-0002"],
-        "s_acctbal": [1000.00, 2000.00],
-        "s_comment": ["Comment 1", "Comment 2"],
-    }
-    return pl.LazyFrame(data)
 
+@table
+def suppliers() -> NlkDataFrame:
+    """Synthetic suppliers, provided as a regular Python function."""
+    return pl.LazyFrame(
+        {"supplier_id": [10, 20], "supplier_name": ["Supplier A", "Supplier B"]}
+    )
+
+
+def run_example() -> pl.DataFrame:
+    with TemporaryDirectory(prefix="datarepo-quickstart-") as directory:
+        path = Path(directory) / "parts.parquet"
+        pl.DataFrame(
+            {
+                "part_id": [1, 2, 3, 4],
+                "part_name": ["Bolt", "Nut", "Washer", "Bracket"],
+                "supplier_id": [20, 10, 20, 10],
+            }
+        ).write_parquet(path)
+        parts = ParquetTable(name="parts", uri=str(path), partitioning=[])
+
+        # Join on the supplier relationship, not on the unrelated part ID.
+        return (
+            parts(filters=[Filter("part_id", "in", [1, 2, 3])])
+            .join(suppliers(), on="supplier_id")
+            .select("part_id", "part_name", "supplier_id", "supplier_name")
+            .sort("part_id")
+            .collect()  # Read the local file before the temporary directory is removed.
+        )
+
+
+if __name__ == "__main__":
+    print(json.dumps(run_example().to_dicts(), indent=2))
 ```
 
-```python
-# tpch_catalog.py
-from datarepo.core import Catalog, ModuleDatabase
-import tpch_tables
+Output captured by running the example:
 
-# Create a catalog
-dbs = {"tpc-h": ModuleDatabase(tpch_tables)}
-TPCHCatalog = Catalog(dbs)
+<!-- local-quickstart-output -->
+```json
+[
+  {
+    "part_id": 1,
+    "part_name": "Bolt",
+    "supplier_id": 20,
+    "supplier_name": "Supplier B"
+  },
+  {
+    "part_id": 2,
+    "part_name": "Nut",
+    "supplier_id": 10,
+    "supplier_name": "Supplier A"
+  },
+  {
+    "part_id": 3,
+    "part_name": "Washer",
+    "supplier_id": 20,
+    "supplier_name": "Supplier B"
+  }
+]
 ```
 
-### Query the data
-
-```python
->>> from tpch_catalog import TPCHCatalog
->>> from datarepo.core import Filter
->>>
->>> # Get part and supplier information
->>> part_data = TPCHCatalog.db("tpc-h").table(
-...     "part",
-...     (
-...         Filter('p_partkey', 'in', [1, 2, 3, 4]),
-...         Filter('p_brand', 'in', ['Brand#1', 'Brand#2', 'Brand#3']),
-...     ),
-... )
->>>
->>> supplier_data = TPCHCatalog.db("tpc-h").table("supplier")
->>>
->>> # Join part and supplier data and select specific columns
->>> joined_data = part_data.join(
-...     supplier_data,
-...     left_on="p_partkey",
-...     right_on="s_suppkey",
-... ).select(["p_name", "p_brand", "s_name"]).collect()
->>>
->>> print(joined_data)
-shape: (4, 3)
-┌────────────┬────────────┬────────────┐
-│ p_name     │ p_brand    │ s_name     │
-│ ---        │ ---        │ ---        │
-│ str        │ str        │ str        │
-╞════════════╪════════════╪════════════╡
-│ Part#1     │ Brand#1    │ Supplier#1 │
-│ Part#2     │ Brand#2    │ Supplier#2 │
-│ Part#3     │ Brand#3    │ Supplier#3 │
-│ Part#4     │ Brand#1    │ Supplier#4 │
-└────────────┴────────────┴────────────┘
-```
-
-### Generate a static site catalog
-You can export your catalog to a static site with a single command:
-
-```python
-# export.py
-from datarepo.export.web import export_and_generate_site
-from tpch_catalog import TPCHCatalog
-
-# Export and generate the site
-export_and_generate_site(
-    catalogs=[("tpch", TPCHCatalog)], output_dir=str(output_dir)
-)
-```
-
-
-### Generate an API
-
-You can also generate a YAML configuration for [ROAPI](https://github.com/roapi/roapi):
-
-```python
-from datarepo.export import roapi
-from tpch_catalog import TPCHCatalog
-
-# Generate ROAPI config
-roapi.generate_config(TPCHCatalog, output_file="roapi-config.yaml")
-```
+The query is collected while the temporary file exists. The original file is
+removed automatically when the example exits. For catalogs and exports, see
+[the example catalog](examples/tpc_catalog.py) and
+[the site generation example](examples/generate_tpc_site.py).
 
 ## About Neuralink
 
