@@ -435,6 +435,24 @@ def configured(env: Mapping[str, str]) -> bool:
     return all(env.get(name) for name in REQUIRED_SECRETS)
 
 
+def resolve_bot_login(env: Mapping[str, str], github: GitHubClient) -> str:
+    """Installation tokens cannot call GET /user; use the App slug instead."""
+    explicit = (env.get("REVIEW_BOT_LOGIN") or "").strip()
+    if explicit:
+        return explicit
+    slug = (env.get("APP_SLUG") or "").strip()
+    if slug:
+        return slug if slug.lower().endswith("[bot]") else f"{slug}[bot]"
+    try:
+        data = github.graphql("query { viewer { login } }")
+        login = ((data or {}).get("viewer") or {}).get("login") or ""
+        if login:
+            return login
+    except Exception as exc:
+        LOGGER.warning("could not resolve bot login via graphql: %s", exc)
+    return "code-review-bot[bot]"
+
+
 def parse_resolved_ids(raw: Any, count: int) -> list[int]:
     ids: list[int] = []
     seen: set[int] = set()
@@ -664,8 +682,7 @@ def run(
         return "skip: no pull request associated with this workflow run"
 
     pr = github.get_json(f"/repos/{github.repo}/pulls/{number}")
-    me = github.get_json("/user")
-    bot_login = me.get("login") or "code-review-bot[bot]"
+    bot_login = resolve_bot_login(env, github)
     head_sha = (
         (pr.get("head") or {}).get("sha") or workflow_run(event).get("head_sha") or ""
     )

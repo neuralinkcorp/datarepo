@@ -65,6 +65,7 @@ jobs:
         if: steps.cfg.outputs.configured == 'true'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
           MODEL: ${{ secrets.MODEL }}
           MODEL_API_URL: ${{ secrets.MODEL_API_URL }}
