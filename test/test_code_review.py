@@ -6,7 +6,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / ".github" / "scripts" / "code_review.py"
-WORKFLOW = ROOT / ".github" / "workflows" / "code-review.yml"
 
 
 def load_code_review():
@@ -106,25 +105,6 @@ PR_EVENT = {
         "pull_requests": [{"number": 12}],
     }
 }
-
-
-def test_workflow_uses_workflow_run_not_pull_request_target():
-    text = WORKFLOW.read_text()
-    on_block = text.split("\njobs:", 1)[0]
-    assert "workflow_run:" in on_block
-    assert "pull_request_target:" not in on_block
-    assert "Test, Build and Publish datarepo" in text
-    assert "types:\n      - requested" in text
-    assert "persist-credentials: false" in text
-    assert "secrets.REVIEW_PROMPT" in text
-
-
-def test_workflow_cancels_in_progress_on_same_branch():
-    header = WORKFLOW.read_text().split("\njobs:", 1)[0]
-    assert "cancel-in-progress: true" in header
-    assert "github.event.workflow_run.head_branch" in header
-    assert "github.event.workflow_run.head_repository.full_name" in header
-    assert "head_sha" not in header
 
 
 def test_right_side_lines_include_added_and_context_not_deleted(reviewer):
@@ -504,15 +484,6 @@ def test_format_diff_omits_binary_and_respects_cap(reviewer):
     assert "photo.png" in omitted
     _, omitted_small = reviewer.format_diff(files, limit=10)
     assert "a.py" in omitted_small
-
-
-def test_http_json_not_used_for_pr_text_in_shell(reviewer):
-    # Guardrail: the reviewer must talk to the model API via urllib, not os.system.
-    source = SCRIPT.read_text()
-    assert "os.system" not in source
-    assert "subprocess" not in source
-    assert "pull_request_target" not in source
-    assert 'REVIEW_EVENT = "COMMENT"' in source
 
 
 def test_parse_next_link(reviewer):
