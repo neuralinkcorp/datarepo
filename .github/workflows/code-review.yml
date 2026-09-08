@@ -1,0 +1,72 @@
+# Code review
+#
+# Runs on the default branch when CI is requested (including after a
+# maintainer approves fork workflows) so the review is parallel with tests.
+# Checks out this repository's default branch only — never PR code.
+# Secrets are available on workflow_run; they are not on pull_request from forks.
+#
+# Does not use pull_request_target.
+name: Code Review
+
+on:
+  workflow_run:
+    workflows:
+      - Test, Build and Publish datarepo
+    types:
+      - requested
+
+concurrency:
+  group: code-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  review:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check review bot configuration
+        id: cfg
+        env:
+          APP_ID: ${{ vars.REVIEW_BOT_APP_ID }}
+          APP_ID_SECRET: ${{ secrets.REVIEW_BOT_APP_ID }}
+          APP_KEY: ${{ secrets.REVIEW_BOT_APP_PRIVATE_KEY }}
+          MODEL_KEY: ${{ secrets.MODEL_API_KEY }}
+          MODEL: ${{ secrets.MODEL }}
+          MODEL_URL: ${{ secrets.MODEL_API_URL }}
+          REVIEW_PROMPT: ${{ secrets.REVIEW_PROMPT }}
+        run: |
+          APP_ID_VALUE="${APP_ID:-$APP_ID_SECRET}"
+          if [ -n "$APP_ID_VALUE" ] && [ -n "$APP_KEY" ] && [ -n "$MODEL_KEY" ] && [ -n "$MODEL" ] && [ -n "$MODEL_URL" ] && [ -n "$REVIEW_PROMPT" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping code review: set REVIEW_BOT_APP_ID, REVIEW_BOT_APP_PRIVATE_KEY, MODEL_API_KEY, MODEL, MODEL_API_URL, and REVIEW_PROMPT."
+          fi
+
+      - name: Create GitHub App token
+        if: steps.cfg.outputs.configured == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.REVIEW_BOT_APP_ID || secrets.REVIEW_BOT_APP_ID }}
+          private-key: ${{ secrets.REVIEW_BOT_APP_PRIVATE_KEY }}
+
+      - name: Review pull request
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+          MODEL: ${{ secrets.MODEL }}
+          MODEL_API_URL: ${{ secrets.MODEL_API_URL }}
+          REVIEW_PROMPT: ${{ secrets.REVIEW_PROMPT }}
+        run: python3 .github/scripts/code_review.py
