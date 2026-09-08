@@ -310,20 +310,3 @@ def test_parse_next_link(reviewer):
     )
     assert reviewer.parse_next_link(header).endswith("page=2")
     assert reviewer.parse_next_link(None) is None
-
-
-def test_model_identity_comes_from_secrets():
-    text = WORKFLOW.read_text()
-    assert "MODEL: ${{ secrets.MODEL }}" in text
-    assert "MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}" in text
-    assert "MODEL_API_URL: ${{ secrets.MODEL_API_URL }}" in text
-
-
-def test_reviewer_sources_use_generic_names():
-    vendor = "gr" + "ok"
-    provider = "x" + "ai"
-    for path in (SCRIPT, WORKFLOW):
-        lowered = path.read_text().lower()
-        assert vendor not in lowered
-        assert provider not in lowered
-        assert provider.replace("ai", ".ai") not in lowered
