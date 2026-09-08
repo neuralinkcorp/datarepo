@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / ".github" / "scripts" / "grok_review.py"
-WORKFLOW = ROOT / ".github" / "workflows" / "grok-review.yml"
+SCRIPT = ROOT / ".github" / "scripts" / "code_review.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "code-review.yml"
 
 
-def load_grok_review():
-    spec = importlib.util.spec_from_file_location("grok_review", SCRIPT)
+def load_code_review():
+    spec = importlib.util.spec_from_file_location("code_review", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -18,8 +18,8 @@ def load_grok_review():
 
 
 @pytest.fixture(scope="module")
-def grok():
-    return load_grok_review()
+def reviewer():
+    return load_code_review()
 
 
 SAMPLE_PATCH = """\
@@ -69,19 +69,19 @@ def test_workflow_uses_workflow_run_not_pull_request_target():
     assert "persist-credentials: false" in text
 
 
-def test_right_side_lines_include_added_and_context_not_deleted(grok):
-    lines = grok.right_side_lines(SAMPLE_PATCH)
+def test_right_side_lines_include_added_and_context_not_deleted(reviewer):
+    lines = reviewer.right_side_lines(SAMPLE_PATCH)
     assert lines == {10, 11, 12, 13}
     assert 9 not in lines
 
 
-def test_right_side_lines_empty_and_no_newline(grok):
-    assert grok.right_side_lines(None) == set()
+def test_right_side_lines_empty_and_no_newline(reviewer):
+    assert reviewer.right_side_lines(None) == set()
     patch = "@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\n"
-    assert grok.right_side_lines(patch) == {1}
+    assert reviewer.right_side_lines(patch) == {1}
 
 
-def test_select_inline_comments_keeps_valid_high_severity_first(grok):
+def test_select_inline_comments_keeps_valid_high_severity_first(reviewer):
     valid = {"src/datarepo/core/tables/clickhouse_table.py": {12, 40, 41}}
     raw = [
         {
@@ -115,32 +115,32 @@ def test_select_inline_comments_keeps_valid_high_severity_first(grok):
             "body": "duplicate line",
         },
     ]
-    selected = grok.select_inline_comments(raw, valid)
+    selected = reviewer.select_inline_comments(raw, valid)
     assert [c["line"] for c in selected] == [12, 40]
     assert selected[0]["severity"] == "high"
 
 
-def test_select_inline_comments_caps_at_eight(grok):
+def test_select_inline_comments_caps_at_eight(reviewer):
     valid = {"a.py": set(range(1, 20))}
     raw = [
         {"path": "a.py", "line": i, "severity": "medium", "body": f"c{i}"}
         for i in range(1, 16)
     ]
-    selected = grok.select_inline_comments(raw, valid)
+    selected = reviewer.select_inline_comments(raw, valid)
     assert len(selected) == 8
 
 
-def test_parse_model_output_strips_fences(grok):
+def test_parse_model_output_strips_fences(reviewer):
     text = """```json
 {"summary": "Looks fine.", "comments": []}
 ```"""
-    parsed = grok.parse_model_output(text)
+    parsed = reviewer.parse_model_output(text)
     assert parsed["summary"] == "Looks fine."
     assert parsed["comments"] == []
 
 
-def test_build_review_payload_is_always_comment(grok):
-    payload = grok.build_review_payload(
+def test_build_review_payload_is_always_comment(reviewer):
+    payload = reviewer.build_review_payload(
         "abc123",
         "summary",
         [{"path": "a.py", "line": 1, "body": "bug"}],
@@ -151,7 +151,7 @@ def test_build_review_payload_is_always_comment(grok):
     assert "not a maintainer approval" in payload["body"]
 
 
-def test_resolve_pull_number_uses_head_selector_when_payload_empty(grok):
+def test_resolve_pull_number_uses_head_selector_when_payload_empty(reviewer):
     event = {
         "workflow_run": {
             "event": "pull_request",
@@ -172,27 +172,27 @@ def test_resolve_pull_number_uses_head_selector_when_payload_empty(grok):
             ],
         }
     )
-    assert grok.resolve_pull_number(github, event) == 57
+    assert reviewer.resolve_pull_number(github, event) == 57
 
 
-def test_skip_draft_and_existing_review(grok):
+def test_skip_draft_and_existing_review(reviewer):
     event = {"workflow_run": {"event": "pull_request"}}
-    draft = grok.skip_reason(
+    draft = reviewer.skip_reason(
         event=event,
         pr={"draft": True, "user": {"login": "alice"}},
-        bot_login="neuralink-code-review-bot[bot]",
+        bot_login="code-review-bot[bot]",
         reviews=[],
         head_sha="aaa",
     )
     assert draft and "draft" in draft
 
-    already = grok.skip_reason(
+    already = reviewer.skip_reason(
         event=event,
         pr={"draft": False, "user": {"login": "alice"}},
-        bot_login="neuralink-code-review-bot[bot]",
+        bot_login="code-review-bot[bot]",
         reviews=[
             {
-                "user": {"login": "neuralink-code-review-bot[bot]"},
+                "user": {"login": "code-review-bot[bot]"},
                 "commit_id": "aaa",
                 "state": "COMMENTED",
             }
@@ -201,22 +201,22 @@ def test_skip_draft_and_existing_review(grok):
     )
     assert already and "already reviewed" in already
 
-    own = grok.skip_reason(
+    own = reviewer.skip_reason(
         event=event,
-        pr={"draft": False, "user": {"login": "neuralink-code-review-bot[bot]"}},
-        bot_login="neuralink-code-review-bot[bot]",
+        pr={"draft": False, "user": {"login": "code-review-bot[bot]"}},
+        bot_login="code-review-bot[bot]",
         reviews=[],
         head_sha="aaa",
     )
     assert own and "review bot" in own
 
 
-def test_run_skips_without_secrets(grok):
-    message = grok.run({}, {}, FakeGitHub({}), lambda *args: "")
+def test_run_skips_without_secrets(reviewer):
+    message = reviewer.run({}, {}, FakeGitHub({}), lambda *args: "")
     assert message.startswith("skip:")
 
 
-def test_run_posts_comment_review(grok):
+def test_run_posts_comment_review(reviewer):
     event = {
         "workflow_run": {
             "event": "pull_request",
@@ -234,7 +234,7 @@ def test_run_posts_comment_review(grok):
                 "user": {"login": "zack-dev-cm"},
                 "head": {"sha": "abc"},
             },
-            "/user": {"login": "neuralink-code-review-bot[bot]"},
+            "/user": {"login": "code-review-bot[bot]"},
             "/repos/neuralinkcorp/datarepo/pulls/12/reviews": [],
             "/repos/neuralinkcorp/datarepo/pulls/12/files": [
                 {
@@ -247,7 +247,7 @@ def test_run_posts_comment_review(grok):
     )
 
     def complete(api_key, model, system, user):
-        assert api_key == "xai-test"
+        assert api_key == "test-key"
         assert "clickhouse_table.py" in user
         return json.dumps(
             {
@@ -263,8 +263,13 @@ def test_run_posts_comment_review(grok):
             }
         )
 
-    message = grok.run(
-        {"GITHUB_TOKEN": "t", "XAI_API_KEY": "xai-test"},
+    message = reviewer.run(
+        {
+            "GITHUB_TOKEN": "t",
+            "MODEL_API_KEY": "test-key",
+            "MODEL": "test-model",
+            "MODEL_API_URL": "https://example.invalid/v1/chat/completions",
+        },
         event,
         github,
         complete,
@@ -277,20 +282,20 @@ def test_run_posts_comment_review(grok):
     assert payload["comments"][0]["line"] == 12
 
 
-def test_format_diff_omits_binary_and_respects_cap(grok):
+def test_format_diff_omits_binary_and_respects_cap(reviewer):
     files = [
         {"filename": "a.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b\n"},
         {"filename": "photo.png", "status": "added"},
     ]
-    text, omitted = grok.format_diff(files)
+    text, omitted = reviewer.format_diff(files)
     assert "a.py" in text
     assert "photo.png" in omitted
-    _, omitted_small = grok.format_diff(files, limit=10)
+    _, omitted_small = reviewer.format_diff(files, limit=10)
     assert "a.py" in omitted_small
 
 
-def test_http_json_not_used_for_pr_text_in_shell(grok):
-    # Guardrail: the reviewer must talk to GitHub/xAI via urllib, not os.system.
+def test_http_json_not_used_for_pr_text_in_shell(reviewer):
+    # Guardrail: the reviewer must talk to the model API via urllib, not os.system.
     source = SCRIPT.read_text()
     assert "os.system" not in source
     assert "subprocess" not in source
@@ -298,10 +303,27 @@ def test_http_json_not_used_for_pr_text_in_shell(grok):
     assert 'REVIEW_EVENT = "COMMENT"' in source
 
 
-def test_parse_next_link(grok):
+def test_parse_next_link(reviewer):
     header = (
         '<https://api.github.com/repos/o/r/pulls/1/files?page=2>; rel="next", '
         '<https://api.github.com/repos/o/r/pulls/1/files?page=3>; rel="last"'
     )
-    assert grok.parse_next_link(header).endswith("page=2")
-    assert grok.parse_next_link(None) is None
+    assert reviewer.parse_next_link(header).endswith("page=2")
+    assert reviewer.parse_next_link(None) is None
+
+
+def test_model_identity_comes_from_secrets():
+    text = WORKFLOW.read_text()
+    assert "MODEL: ${{ secrets.MODEL }}" in text
+    assert "MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}" in text
+    assert "MODEL_API_URL: ${{ secrets.MODEL_API_URL }}" in text
+
+
+def test_reviewer_sources_use_generic_names():
+    vendor = "gr" + "ok"
+    provider = "x" + "ai"
+    for path in (SCRIPT, WORKFLOW):
+        lowered = path.read_text().lower()
+        assert vendor not in lowered
+        assert provider not in lowered
+        assert provider.replace("ai", ".ai") not in lowered

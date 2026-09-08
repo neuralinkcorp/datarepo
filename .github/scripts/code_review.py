@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review a pull request with Grok and post a GitHub COMMENT review.
+"""Review a pull request and post a GitHub COMMENT review.
 
 Runs from Actions on the default branch. Fetches the diff over the API and
 never checks out or executes pull-request code.
@@ -17,24 +17,23 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Mapping
 
-LOGGER = logging.getLogger("grok_review")
+LOGGER = logging.getLogger("code_review")
 
 GITHUB_API = "https://api.github.com"
-XAI_API = "https://api.x.ai/v1/chat/completions"
-DEFAULT_MODEL = "grok-4.6"
+REQUIRED_MODEL_ENV = ("MODEL_API_KEY", "MODEL", "MODEL_API_URL")
 MAX_DIFF_CHARS = 200_000
 MAX_INLINE_COMMENTS = 8
 MAX_COMMENT_CHARS = 8_000
 REVIEW_EVENT = "COMMENT"
 FOOTER = (
-    "*Posted by Neuralink Code Review Bot (Grok). This is an automated review, "
+    "*Posted by the code review bot. This is an automated review, "
     "not a maintainer approval.*"
 )
 SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 SKIP_PR_EVENTS = frozenset({"pull_request"})
 
-SYSTEM_PROMPT = """You are Neuralink Code Review Bot, an automated reviewer for the public neuralinkcorp/datarepo Python library.
+SYSTEM_PROMPT = """You are a code review bot, an automated reviewer for the public neuralinkcorp/datarepo Python library.
 
 Review the pull request diff for material issues only:
 - correctness bugs and silent behavioral changes
@@ -127,7 +126,7 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self.token}",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "neuralink-code-review-bot",
+            "User-Agent": "code-review-bot",
         }
 
     def request(
@@ -333,7 +332,9 @@ def build_review_payload(
 
 
 def configured(env: Mapping[str, str]) -> bool:
-    return bool(env.get("GITHUB_TOKEN") and env.get("XAI_API_KEY"))
+    return bool(env.get("GITHUB_TOKEN")) and all(
+        env.get(name) for name in REQUIRED_MODEL_ENV
+    )
 
 
 def load_event(env: Mapping[str, str]) -> dict[str, Any]:
@@ -430,6 +431,9 @@ def build_user_prompt(
 def complete_chat(
     api_key: str, model: str, system: str, user: str, timeout: int = 120
 ) -> str:
+    api_url = os.environ.get("MODEL_API_URL")
+    if not api_url:
+        raise RuntimeError("MODEL_API_URL is not configured")
     payload = {
         "model": model,
         "temperature": 0,
@@ -439,14 +443,15 @@ def complete_chat(
         ],
         "response_format": {"type": "json_object"},
     }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "code-review-bot",
+    }
     status, body, _ = http_json(
-        XAI_API,
+        api_url,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "neuralink-code-review-bot",
-        },
+        headers=headers,
         payload=payload,
         timeout=timeout,
     )
@@ -455,24 +460,20 @@ def complete_chat(
         if "response_format" in message.lower():
             payload.pop("response_format", None)
             status, body, _ = http_json(
-                XAI_API,
+                api_url,
                 method="POST",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "neuralink-code-review-bot",
-                },
+                headers=headers,
                 payload=payload,
                 timeout=timeout,
             )
         if status >= 400:
-            raise RuntimeError(f"xAI API error {status}: {body}")
+            raise RuntimeError(f"model API error {status}: {body}")
     choices = (body or {}).get("choices") or []
     if not choices:
-        raise RuntimeError(f"xAI API returned no choices: {body}")
+        raise RuntimeError(f"model API returned no choices: {body}")
     content = choices[0].get("message", {}).get("content") or ""
     if not str(content).strip():
-        raise RuntimeError("xAI API returned empty content")
+        raise RuntimeError("model API returned empty content")
     return str(content)
 
 
@@ -496,7 +497,7 @@ def run(
     complete: Callable[[str, str, str, str], str],
 ) -> str:
     if not configured(env):
-        return "skip: GITHUB_TOKEN or XAI_API_KEY is not configured"
+        return "skip: GITHUB_TOKEN or model secrets are not configured"
 
     number = resolve_pull_number(github, event)
     if number is None:
@@ -504,7 +505,7 @@ def run(
 
     pr = github.get_json(f"/repos/{github.repo}/pulls/{number}")
     me = github.get_json("/user")
-    bot_login = me.get("login") or "neuralink-code-review-bot[bot]"
+    bot_login = me.get("login") or "code-review-bot[bot]"
     head_sha = (
         (pr.get("head") or {}).get("sha") or workflow_run(event).get("head_sha") or ""
     )
@@ -525,9 +526,9 @@ def run(
     if not diff_text.strip():
         return "skip: pull request has no reviewable diff"
 
-    model = env.get("XAI_MODEL") or DEFAULT_MODEL
+    model = env["MODEL"]
     raw = complete(
-        env["XAI_API_KEY"],
+        env["MODEL_API_KEY"],
         model,
         SYSTEM_PROMPT,
         build_user_prompt(pr, diff_text, omitted),

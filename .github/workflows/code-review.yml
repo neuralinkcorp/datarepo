@@ -1,4 +1,4 @@
-# Neuralink Code Review Bot
+# Code review
 #
 # Runs on the default branch when CI is requested (including after a
 # maintainer approves fork workflows) so the review is parallel with tests.
@@ -6,7 +6,7 @@
 # Secrets are available on workflow_run; they are not on pull_request from forks.
 #
 # Does not use pull_request_target.
-name: Neuralink Code Review Bot
+name: Code Review
 
 on:
   workflow_run:
@@ -16,7 +16,7 @@ on:
       - requested
 
 concurrency:
-  group: neuralink-code-review-bot-${{ github.event.workflow_run.head_sha }}
+  group: code-review-${{ github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 permissions:
@@ -40,14 +40,16 @@ jobs:
           APP_ID: ${{ vars.REVIEW_BOT_APP_ID }}
           APP_ID_SECRET: ${{ secrets.REVIEW_BOT_APP_ID }}
           APP_KEY: ${{ secrets.REVIEW_BOT_APP_PRIVATE_KEY }}
-          XAI_KEY: ${{ secrets.XAI_API_KEY }}
+          MODEL_KEY: ${{ secrets.MODEL_API_KEY }}
+          MODEL: ${{ secrets.MODEL }}
+          MODEL_URL: ${{ secrets.MODEL_API_URL }}
         run: |
           APP_ID_VALUE="${APP_ID:-$APP_ID_SECRET}"
-          if [ -n "$APP_ID_VALUE" ] && [ -n "$APP_KEY" ] && [ -n "$XAI_KEY" ]; then
+          if [ -n "$APP_ID_VALUE" ] && [ -n "$APP_KEY" ] && [ -n "$MODEL_KEY" ] && [ -n "$MODEL" ] && [ -n "$MODEL_URL" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping Neuralink Code Review Bot: set REVIEW_BOT_APP_ID, REVIEW_BOT_APP_PRIVATE_KEY, and XAI_API_KEY."
+            echo "Skipping code review: set REVIEW_BOT_APP_ID, REVIEW_BOT_APP_PRIVATE_KEY, MODEL_API_KEY, MODEL, and MODEL_API_URL."
           fi
 
       - name: Create GitHub App token
@@ -62,6 +64,7 @@ jobs:
         if: steps.cfg.outputs.configured == 'true'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          XAI_MODEL: grok-4.6
-        run: python3 .github/scripts/grok_review.py
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+          MODEL: ${{ secrets.MODEL }}
+          MODEL_API_URL: ${{ secrets.MODEL_API_URL }}
+        run: python3 .github/scripts/code_review.py
