@@ -20,10 +20,17 @@ from typing import Any, Callable, Mapping
 LOGGER = logging.getLogger("code_review")
 
 GITHUB_API = "https://api.github.com"
-REQUIRED_MODEL_ENV = ("MODEL_API_KEY", "MODEL", "MODEL_API_URL")
+REQUIRED_SECRETS = (
+    "GITHUB_TOKEN",
+    "MODEL_API_KEY",
+    "MODEL",
+    "MODEL_API_URL",
+    "REVIEW_PROMPT",
+)
 MAX_DIFF_CHARS = 200_000
 MAX_INLINE_COMMENTS = 8
 MAX_COMMENT_CHARS = 8_000
+MAX_PREVIOUS_COMMENTS = 30
 REVIEW_EVENT = "COMMENT"
 FOOTER = (
     "*Posted by the code review bot. This is an automated review, "
@@ -32,24 +39,7 @@ FOOTER = (
 SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 SKIP_PR_EVENTS = frozenset({"pull_request"})
-
-SYSTEM_PROMPT = """You are a code review bot, an automated reviewer for the public neuralinkcorp/datarepo Python library.
-
-Review the pull request diff for material issues only:
-- correctness bugs and silent behavioral changes
-- security issues (injection, secret leakage, unsafe deserialization, path traversal)
-- public API breaks
-- missing tests for behavioral changes
-- resource leaks / incorrect error handling that would drop data
-
-Do not comment on style, naming, formatting, or "add a comment" nits unless they hide a bug.
-Do not approve the change and do not request changes as a GitHub review event; you only produce JSON findings.
-Only comment on lines that appear in the diff as added or context lines (the RIGHT side).
-Use the exact file paths from the diff.
-Return at most 8 inline comments, highest severity first.
-If there are no material findings, return an empty comments array and a short summary saying so.
-
-Return a JSON object with this shape:
+OUTPUT_INSTRUCTIONS = """Return a JSON object with this shape:
 {
   "summary": "markdown review summary (2-8 sentences)",
   "comments": [
@@ -59,9 +49,45 @@ Return a JSON object with this shape:
       "severity": "high",
       "body": "specific finding and why it matters"
     }
-  ]
+  ],
+  "resolved": [1, 2]
 }
-severity must be one of: high, medium, low.
+severity must be high, medium, or low.
+comments: at most 8 inline comments on RIGHT-side diff lines; use exact paths from the diff.
+resolved: 1-based ids of previous unresolved bot comments that the current diff fully addresses. Use [] if none.
+Do not re-comment previous unresolved findings unless the new diff introduces a distinct issue.
+Do not approve or request changes as a GitHub review event.
+"""
+THREADS_QUERY = """
+query ($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          comments(first: 1) {
+            nodes {
+              author { login }
+              body
+              path
+              line
+              originalLine
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+RESOLVE_MUTATION = """
+mutation ($id: ID!) {
+  resolveReviewThread(input: {threadId: $id}) {
+    thread { isResolved }
+  }
+}
 """
 
 
@@ -179,6 +205,74 @@ class GitHubClient:
         status, body, _ = self.request("POST", path, payload=payload, timeout=60)
         return status, body
 
+    def graphql(self, query: str, variables: dict[str, Any] | None = None) -> Any:
+        status, body, _ = self.request(
+            "POST",
+            "/graphql",
+            payload={"query": query, "variables": variables or {}},
+            timeout=60,
+        )
+        if status >= 400:
+            raise GitHubError(status, "/graphql", body)
+        errors = (body or {}).get("errors")
+        if errors:
+            raise GitHubError(status, "/graphql", errors)
+        return (body or {}).get("data")
+
+    def list_unresolved_bot_threads(
+        self, number: int, bot_login: str
+    ) -> list[dict[str, Any]]:
+        owner, name = self.repo.split("/", 1)
+        bot_norm = normalize_login(bot_login)
+        threads: list[dict[str, Any]] = []
+        cursor = None
+        while True:
+            data = self.graphql(
+                THREADS_QUERY,
+                {
+                    "owner": owner,
+                    "name": name,
+                    "number": number,
+                    "cursor": cursor,
+                },
+            )
+            conn = (
+                ((data or {}).get("repository") or {}).get("pullRequest") or {}
+            ).get("reviewThreads") or {}
+            for node in conn.get("nodes") or []:
+                if not node or node.get("isResolved"):
+                    continue
+                comments = (node.get("comments") or {}).get("nodes") or []
+                if not comments:
+                    continue
+                first = comments[0] or {}
+                author = ((first.get("author") or {}).get("login") or "")
+                if normalize_login(author) != bot_norm:
+                    continue
+                line = first.get("line")
+                if line is None:
+                    line = first.get("originalLine")
+                threads.append(
+                    {
+                        "id": node.get("id"),
+                        "path": first.get("path") or "",
+                        "line": line,
+                        "body": first.get("body") or "",
+                    }
+                )
+                if len(threads) >= MAX_PREVIOUS_COMMENTS:
+                    return threads
+            page = conn.get("pageInfo") or {}
+            if not page.get("hasNextPage"):
+                break
+            cursor = page.get("endCursor")
+            if not cursor:
+                break
+        return threads
+
+    def resolve_review_thread(self, thread_id: str) -> None:
+        self.graphql(RESOLVE_MUTATION, {"id": thread_id})
+
 
 def right_side_lines(patch: str | None) -> set[int]:
     """Return RIGHT-side file line numbers that GitHub will accept comments on."""
@@ -265,9 +359,11 @@ def select_inline_comments(
     raw_comments: list[Any],
     valid_lines: dict[str, set[int]],
     limit: int = MAX_INLINE_COMMENTS,
+    exclude: set[tuple[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
+    skip = exclude or set()
     for raw in raw_comments:
         if not isinstance(raw, Mapping):
             continue
@@ -275,7 +371,7 @@ def select_inline_comments(
         if item is None:
             continue
         key = (item["path"], item["line"])
-        if key in seen:
+        if key in seen or key in skip:
             continue
         lines = valid_lines.get(item["path"])
         if not lines or item["line"] not in lines:
@@ -302,7 +398,11 @@ def parse_model_output(text: str) -> dict[str, Any]:
     summary = data.get("summary") or data.get("body") or ""
     if not isinstance(summary, str):
         summary = str(summary)
-    return {"summary": summary.strip(), "comments": comments}
+    return {
+        "summary": summary.strip(),
+        "comments": comments,
+        "resolved": data.get("resolved") or data.get("addressed") or [],
+    }
 
 
 def build_review_payload(
@@ -332,9 +432,55 @@ def build_review_payload(
 
 
 def configured(env: Mapping[str, str]) -> bool:
-    return bool(env.get("GITHUB_TOKEN")) and all(
-        env.get(name) for name in REQUIRED_MODEL_ENV
-    )
+    return all(env.get(name) for name in REQUIRED_SECRETS)
+
+
+def parse_resolved_ids(raw: Any, count: int) -> list[int]:
+    ids: list[int] = []
+    seen: set[int] = set()
+    if not isinstance(raw, list):
+        return ids
+    for item in raw:
+        value: Any = item
+        if isinstance(item, Mapping):
+            value = item.get("id") or item.get("index")
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number < 1 or number > count or number in seen:
+            continue
+        seen.add(number)
+        ids.append(number)
+    return ids
+
+
+def threads_for_resolved_ids(
+    threads: list[dict[str, Any]], resolved_ids: list[int]
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for index in resolved_ids:
+        if 1 <= index <= len(threads) and threads[index - 1].get("id"):
+            selected.append(threads[index - 1])
+    return selected
+
+
+def previous_comment_keys(threads: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    keys: set[tuple[str, int]] = set()
+    for item in threads:
+        path = item.get("path")
+        line = item.get("line")
+        if not path or line is None:
+            continue
+        try:
+            keys.add((str(path), int(line)))
+        except (TypeError, ValueError):
+            continue
+    return keys
+
+
+def build_system_prompt(env: Mapping[str, str]) -> str:
+    return env["REVIEW_PROMPT"].strip() + "\n\n" + OUTPUT_INSTRUCTIONS
 
 
 def load_event(env: Mapping[str, str]) -> dict[str, Any]:
@@ -411,6 +557,7 @@ def build_user_prompt(
     pr: Mapping[str, Any],
     diff_text: str,
     omitted: list[str],
+    previous: list[dict[str, Any]] | None = None,
 ) -> str:
     title = pr.get("title") or ""
     body = (pr.get("body") or "").strip() or "(no description)"
@@ -420,11 +567,24 @@ def build_user_prompt(
         omitted_note = "\nFiles with no (or truncated) patches:\n" + "\n".join(
             f"- {path}" for path in omitted
         )
+    previous_note = ""
+    if previous:
+        lines = [
+            "Previous unresolved comments from the code review bot.",
+            "If a finding is fully addressed in the current diff, include its id in resolved.",
+            "Do not repeat unresolved findings as new comments.",
+        ]
+        for index, item in enumerate(previous, start=1):
+            path = item.get("path") or "unknown"
+            line = item.get("line") if item.get("line") is not None else "?"
+            text = (item.get("body") or "").strip().replace("\n", " ")
+            lines.append(f"[{index}] {path}:{line} — {text}")
+        previous_note = "\n" + "\n".join(lines) + "\n"
     return (
         f"Pull request #{pr.get('number')}: {title}\n"
         f"Author: {author}\n"
         f"Description:\n{body}\n\n"
-        f"Diff:\n{diff_text}{omitted_note}\n"
+        f"Diff:\n{diff_text}{omitted_note}{previous_note}\n"
     )
 
 
@@ -497,7 +657,7 @@ def run(
     complete: Callable[[str, str, str, str], str],
 ) -> str:
     if not configured(env):
-        return "skip: GITHUB_TOKEN or model secrets are not configured"
+        return "skip: required secrets are not configured"
 
     number = resolve_pull_number(github, event)
     if number is None:
@@ -526,22 +686,46 @@ def run(
     if not diff_text.strip():
         return "skip: pull request has no reviewable diff"
 
-    model = env["MODEL"]
+    previous: list[dict[str, Any]] = []
+    try:
+        previous = github.list_unresolved_bot_threads(number, bot_login)
+    except Exception as exc:
+        LOGGER.warning("could not load previous comments: %s", exc)
+
     raw = complete(
         env["MODEL_API_KEY"],
-        model,
-        SYSTEM_PROMPT,
-        build_user_prompt(pr, diff_text, omitted),
+        env["MODEL"],
+        build_system_prompt(env),
+        build_user_prompt(pr, diff_text, omitted, previous),
     )
     parsed = parse_model_output(raw)
-    comments = select_inline_comments(parsed["comments"], valid_lines)
-    payload = build_review_payload(head_sha, parsed["summary"], comments)
+    resolved_ids = parse_resolved_ids(parsed.get("resolved"), len(previous))
+    to_resolve = threads_for_resolved_ids(previous, resolved_ids)
+    comments = select_inline_comments(
+        parsed["comments"],
+        valid_lines,
+        exclude=previous_comment_keys(previous),
+    )
+    summary = parsed["summary"]
+    if to_resolve:
+        summary = (
+            f"{summary}\n\nResolved {len(to_resolve)} previous comment(s) "
+            "as addressed."
+        ).strip()
+    payload = build_review_payload(head_sha, summary, comments)
     if payload["event"] != REVIEW_EVENT:
         raise RuntimeError("refusing to post a review that is not COMMENT")
     posted = post_review(github, number, payload)
+    resolved_ok = 0
+    for thread in to_resolve:
+        try:
+            github.resolve_review_thread(thread["id"])
+            resolved_ok += 1
+        except Exception as exc:
+            LOGGER.warning("could not resolve thread %s: %s", thread.get("id"), exc)
     return (
         f"posted review {posted.get('id')} on PR #{number} "
-        f"({len(comments)} inline comments)"
+        f"({len(comments)} inline comments, {resolved_ok} resolved)"
     )
 
 

@@ -16,7 +16,7 @@ on:
       - requested
 
 concurrency:
-  group: code-review-${{ github.event.workflow_run.head_sha }}
+  group: code-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 
 permissions:
@@ -43,13 +43,14 @@ jobs:
           MODEL_KEY: ${{ secrets.MODEL_API_KEY }}
           MODEL: ${{ secrets.MODEL }}
           MODEL_URL: ${{ secrets.MODEL_API_URL }}
+          REVIEW_PROMPT: ${{ secrets.REVIEW_PROMPT }}
         run: |
           APP_ID_VALUE="${APP_ID:-$APP_ID_SECRET}"
-          if [ -n "$APP_ID_VALUE" ] && [ -n "$APP_KEY" ] && [ -n "$MODEL_KEY" ] && [ -n "$MODEL" ] && [ -n "$MODEL_URL" ]; then
+          if [ -n "$APP_ID_VALUE" ] && [ -n "$APP_KEY" ] && [ -n "$MODEL_KEY" ] && [ -n "$MODEL" ] && [ -n "$MODEL_URL" ] && [ -n "$REVIEW_PROMPT" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping code review: set REVIEW_BOT_APP_ID, REVIEW_BOT_APP_PRIVATE_KEY, MODEL_API_KEY, MODEL, and MODEL_API_URL."
+            echo "Skipping code review: set REVIEW_BOT_APP_ID, REVIEW_BOT_APP_PRIVATE_KEY, MODEL_API_KEY, MODEL, MODEL_API_URL, and REVIEW_PROMPT."
           fi
 
       - name: Create GitHub App token
@@ -67,4 +68,5 @@ jobs:
           MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
           MODEL: ${{ secrets.MODEL }}
           MODEL_API_URL: ${{ secrets.MODEL_API_URL }}
+          REVIEW_PROMPT: ${{ secrets.REVIEW_PROMPT }}
         run: python3 .github/scripts/code_review.py

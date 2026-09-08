@@ -33,10 +33,12 @@ SAMPLE_PATCH = """\
 
 
 class FakeGitHub:
-    def __init__(self, routes):
+    def __init__(self, routes, threads=None):
         self.repo = "neuralinkcorp/datarepo"
         self.routes = routes
         self.posts = []
+        self.threads = list(threads or [])
+        self.resolved = []
 
     def _lookup(self, path, params=None):
         key = path
@@ -58,6 +60,53 @@ class FakeGitHub:
         self.posts.append((path, payload))
         return 200, {"id": 99, "event": payload.get("event")}
 
+    def list_unresolved_bot_threads(self, number, bot_login):
+        return [
+            dict(thread)
+            for thread in self.threads
+            if thread.get("id") not in self.resolved
+        ]
+
+    def resolve_review_thread(self, thread_id):
+        self.resolved.append(thread_id)
+
+
+PR_ROUTES = {
+    "/repos/neuralinkcorp/datarepo/pulls/12": {
+        "number": 12,
+        "title": "Fix nulls",
+        "body": "Handle IS NULL",
+        "draft": False,
+        "user": {"login": "zack-dev-cm"},
+        "head": {"sha": "abc"},
+    },
+    "/user": {"login": "code-review-bot[bot]"},
+    "/repos/neuralinkcorp/datarepo/pulls/12/reviews": [],
+    "/repos/neuralinkcorp/datarepo/pulls/12/files": [
+        {
+            "filename": "src/datarepo/core/tables/clickhouse_table.py",
+            "status": "modified",
+            "patch": SAMPLE_PATCH,
+        }
+    ],
+}
+
+REVIEW_ENV = {
+    "GITHUB_TOKEN": "t",
+    "MODEL_API_KEY": "test-key",
+    "MODEL": "test-model",
+    "MODEL_API_URL": "https://example.invalid/v1/chat/completions",
+    "REVIEW_PROMPT": "Review for correctness and tests.",
+}
+
+PR_EVENT = {
+    "workflow_run": {
+        "event": "pull_request",
+        "head_sha": "abc",
+        "pull_requests": [{"number": 12}],
+    }
+}
+
 
 def test_workflow_uses_workflow_run_not_pull_request_target():
     text = WORKFLOW.read_text()
@@ -67,6 +116,15 @@ def test_workflow_uses_workflow_run_not_pull_request_target():
     assert "Test, Build and Publish datarepo" in text
     assert "types:\n      - requested" in text
     assert "persist-credentials: false" in text
+    assert "secrets.REVIEW_PROMPT" in text
+
+
+def test_workflow_cancels_in_progress_on_same_branch():
+    header = WORKFLOW.read_text().split("\njobs:", 1)[0]
+    assert "cancel-in-progress: true" in header
+    assert "github.event.workflow_run.head_branch" in header
+    assert "github.event.workflow_run.head_repository.full_name" in header
+    assert "head_sha" not in header
 
 
 def test_right_side_lines_include_added_and_context_not_deleted(reviewer):
@@ -130,13 +188,32 @@ def test_select_inline_comments_caps_at_eight(reviewer):
     assert len(selected) == 8
 
 
+def test_select_inline_comments_excludes_previous_lines(reviewer):
+    valid = {"a.py": {10, 11, 12}}
+    raw = [
+        {"path": "a.py", "line": 10, "severity": "high", "body": "old finding"},
+        {"path": "a.py", "line": 12, "severity": "high", "body": "new finding"},
+    ]
+    selected = reviewer.select_inline_comments(
+        raw, valid, exclude={("a.py", 10)}
+    )
+    assert [c["line"] for c in selected] == [12]
+
+
 def test_parse_model_output_strips_fences(reviewer):
     text = """```json
-{"summary": "Looks fine.", "comments": []}
+{"summary": "Looks fine.", "comments": [], "resolved": [1, 2]}
 ```"""
     parsed = reviewer.parse_model_output(text)
     assert parsed["summary"] == "Looks fine."
     assert parsed["comments"] == []
+    assert parsed["resolved"] == [1, 2]
+
+
+def test_parse_resolved_ids_filters_invalid(reviewer):
+    assert reviewer.parse_resolved_ids([1, 1, 99, "2", "nope", 0], 3) == [1, 2]
+    assert reviewer.parse_resolved_ids({"id": 1}, 3) == []
+    assert reviewer.parse_resolved_ids([{"id": 3}], 3) == [3]
 
 
 def test_build_review_payload_is_always_comment(reviewer):
@@ -213,42 +290,17 @@ def test_skip_draft_and_existing_review(reviewer):
 
 def test_run_skips_without_secrets(reviewer):
     message = reviewer.run({}, {}, FakeGitHub({}), lambda *args: "")
-    assert message.startswith("skip:")
+    assert message == "skip: required secrets are not configured"
 
 
 def test_run_posts_comment_review(reviewer):
-    event = {
-        "workflow_run": {
-            "event": "pull_request",
-            "head_sha": "abc",
-            "pull_requests": [{"number": 12}],
-        }
-    }
-    github = FakeGitHub(
-        {
-            "/repos/neuralinkcorp/datarepo/pulls/12": {
-                "number": 12,
-                "title": "Fix nulls",
-                "body": "Handle IS NULL",
-                "draft": False,
-                "user": {"login": "zack-dev-cm"},
-                "head": {"sha": "abc"},
-            },
-            "/user": {"login": "code-review-bot[bot]"},
-            "/repos/neuralinkcorp/datarepo/pulls/12/reviews": [],
-            "/repos/neuralinkcorp/datarepo/pulls/12/files": [
-                {
-                    "filename": "src/datarepo/core/tables/clickhouse_table.py",
-                    "status": "modified",
-                    "patch": SAMPLE_PATCH,
-                }
-            ],
-        }
-    )
+    github = FakeGitHub(PR_ROUTES)
 
     def complete(api_key, model, system, user):
         assert api_key == "test-key"
         assert "clickhouse_table.py" in user
+        assert REVIEW_ENV["REVIEW_PROMPT"] in system
+        assert "resolved" in system
         return json.dumps(
             {
                 "summary": "Null filters need coverage.",
@@ -263,23 +315,183 @@ def test_run_posts_comment_review(reviewer):
             }
         )
 
-    message = reviewer.run(
-        {
-            "GITHUB_TOKEN": "t",
-            "MODEL_API_KEY": "test-key",
-            "MODEL": "test-model",
-            "MODEL_API_URL": "https://example.invalid/v1/chat/completions",
-        },
-        event,
-        github,
-        complete,
-    )
+    message = reviewer.run(REVIEW_ENV, PR_EVENT, github, complete)
     assert "posted review 99" in message
+    assert "1 inline comments, 0 resolved" in message
     assert len(github.posts) == 1
     payload = github.posts[0][1]
     assert payload["event"] == "COMMENT"
     assert payload["commit_id"] == "abc"
     assert payload["comments"][0]["line"] == 12
+    assert github.resolved == []
+
+
+def test_run_resolves_addressed_previous_comments(reviewer):
+    github = FakeGitHub(
+        PR_ROUTES,
+        threads=[
+            {
+                "id": "TH_ADDRESSED",
+                "path": "src/datarepo/core/tables/clickhouse_table.py",
+                "line": 12,
+                "body": "filters is rebound after query is built",
+            },
+            {
+                "id": "TH_STILL_OPEN",
+                "path": "src/datarepo/core/tables/clickhouse_table.py",
+                "line": 13,
+                "body": "needs a test for the null path",
+            },
+        ],
+    )
+
+    def complete(api_key, model, system, user):
+        assert "[1] src/datarepo/core/tables/clickhouse_table.py:12" in user
+        assert "[2] src/datarepo/core/tables/clickhouse_table.py:13" in user
+        return json.dumps(
+            {
+                "summary": "The null-filter issue is fixed.",
+                "comments": [
+                    {
+                        "path": "src/datarepo/core/tables/clickhouse_table.py",
+                        "line": 12,
+                        "severity": "high",
+                        "body": "should not re-post the addressed finding",
+                    },
+                    {
+                        "path": "src/datarepo/core/tables/clickhouse_table.py",
+                        "line": 13,
+                        "severity": "medium",
+                        "body": "should not re-post the still-open finding",
+                    },
+                    {
+                        "path": "src/datarepo/core/tables/clickhouse_table.py",
+                        "line": 11,
+                        "severity": "low",
+                        "body": "new nit on a different line",
+                    },
+                ],
+                "resolved": [1],
+            }
+        )
+
+    message = reviewer.run(REVIEW_ENV, PR_EVENT, github, complete)
+    assert "1 inline comments, 1 resolved" in message
+    assert github.resolved == ["TH_ADDRESSED"]
+    payload = github.posts[0][1]
+    assert [c["line"] for c in payload["comments"]] == [11]
+    assert "Resolved 1 previous comment(s) as addressed." in payload["body"]
+
+
+def test_run_continues_when_previous_comments_fail_to_load(reviewer):
+    github = FakeGitHub(PR_ROUTES)
+
+    def boom(number, bot_login):
+        raise RuntimeError("graphql down")
+
+    github.list_unresolved_bot_threads = boom
+
+    def complete(api_key, model, system, user):
+        assert "Previous unresolved comments" not in user
+        return json.dumps({"summary": "Looks fine.", "comments": []})
+
+    message = reviewer.run(REVIEW_ENV, PR_EVENT, github, complete)
+    assert "posted review 99" in message
+    assert "0 resolved" in message
+
+
+def test_list_unresolved_bot_threads_keeps_bot_open_threads(reviewer):
+    response = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "TH_KEEP",
+                                "isResolved": False,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "author": {
+                                                "login": "code-review-bot[bot]"
+                                            },
+                                            "body": "null filter dropped",
+                                            "path": "a.py",
+                                            "line": 12,
+                                            "originalLine": 12,
+                                        }
+                                    ]
+                                },
+                            },
+                            {
+                                "id": "TH_RESOLVED",
+                                "isResolved": True,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "author": {
+                                                "login": "code-review-bot[bot]"
+                                            },
+                                            "body": "old",
+                                            "path": "a.py",
+                                            "line": 1,
+                                            "originalLine": 1,
+                                        }
+                                    ]
+                                },
+                            },
+                            {
+                                "id": "TH_HUMAN",
+                                "isResolved": False,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "author": {"login": "alice"},
+                                            "body": "please fix",
+                                            "path": "a.py",
+                                            "line": 3,
+                                            "originalLine": 3,
+                                        }
+                                    ]
+                                },
+                            },
+                            {
+                                "id": "TH_FALLBACK_LINE",
+                                "isResolved": False,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "author": {
+                                                "login": "code-review-bot[bot]"
+                                            },
+                                            "body": "outdated line",
+                                            "path": "b.py",
+                                            "line": None,
+                                            "originalLine": 40,
+                                        }
+                                    ]
+                                },
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+    }
+
+    def requester(url, method="GET", headers=None, payload=None, timeout=30):
+        assert url.endswith("/graphql")
+        return 200, response, {}
+
+    github = reviewer.GitHubClient(
+        "t", "neuralinkcorp/datarepo", requester=requester
+    )
+    threads = github.list_unresolved_bot_threads(12, "code-review-bot[bot]")
+    assert [item["id"] for item in threads] == ["TH_KEEP", "TH_FALLBACK_LINE"]
+    assert threads[0]["line"] == 12
+    assert threads[1]["line"] == 40
 
 
 def test_format_diff_omits_binary_and_respects_cap(reviewer):
