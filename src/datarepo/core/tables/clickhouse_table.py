@@ -223,6 +223,10 @@ class ClickHouseTable(TableProtocol):
 
         Returns:
             str: SQL query string to select data from the ClickHouse table.
+
+        Raises:
+            ValueError: If a filter uses an unsupported operator. Unary null
+                predicates ignore Filter.value.
         """
         config = config or self.config
         table_name = config.table_name or self.name
@@ -280,6 +284,10 @@ class ClickHouseTable(TableProtocol):
                             format_value_for_sql(v) for v in cast(list, f.value)
                         )
                         set_expressions.append(f"`{f.column}` NOT IN ({values})")
+                    elif f.operator == "is null":
+                        set_expressions.append(f"`{f.column}` IS NULL")
+                    elif f.operator == "is not null":
+                        set_expressions.append(f"`{f.column}` IS NOT NULL")
                     elif f.operator in [
                         "contains",
                         "includes",
@@ -289,6 +297,8 @@ class ClickHouseTable(TableProtocol):
                         set_expressions.append(
                             f"`{f.column}` LIKE {format_value_for_sql(f.value)}"
                         )
+                    else:
+                        raise ValueError(f"Unsupported filter operator: {f.operator!r}")
 
                 if set_expressions:
                     filter_expressions.append("(" + " AND ".join(set_expressions) + ")")
@@ -323,6 +333,10 @@ class ClickHouseTable(TableProtocol):
 
         Returns:
             NlkDataFrame: A lazy Polars DataFrame with the requested data.
+
+        Raises:
+            ValueError: If a filter uses an unsupported operator, before creating
+                a backend client or executing a query.
         """
         config = config or self.config
 
