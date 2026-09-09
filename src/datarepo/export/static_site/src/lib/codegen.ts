@@ -47,6 +47,22 @@ function isStringPartition(partition: ExportedTablePartition): boolean {
   return partition.type_annotation === 'str' || partition.type_annotation === 'string';
 }
 
+function partitionOperator(partition: ExportedTablePartition): string {
+  return partition.operator || '='
+}
+
+function formatSqlPredicate(partition: ExportedTablePartition): string {
+  const operator = partitionOperator(partition)
+  if (operator === 'is null' || operator === 'is not null') {
+    return `${partition.column_name} ${operator}`
+  }
+  if (operator === 'contains') {
+    return `${partition.column_name} like '%${partition.value}%'`
+  }
+  const value = isStringPartition(partition) ? `'${partition.value}'` : partition.value
+  return `${partition.column_name} ${operator} ${value}`
+}
+
 interface GenTableCodeOptions {
   catalog: ExportedCatalog;
   database: ExportedDatabase;
@@ -64,17 +80,14 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
 
   if (table.partitions.length !== 0) {
     if (formatSqlFilter) {
-      const stringFilter = table.partitions.map((partition) => {
-        const partitionValue = isStringPartition(partition) ? `'${partition.value}'` : partition.value;
-        return `${partition.column_name} = ${partitionValue}`
-      }).join(' and ');
+      const stringFilter = table.partitions.map(formatSqlPredicate).join(' and ');
       params.push(`filters="${stringFilter}"`);
     } else {
       const filters = []
 
       for (const partition of table.partitions) {
         const value = isStringPartition(partition) ? `"${partition.value}"` : partition.value
-        filters.push(`Filter("${partition.column_name}", "=", ${value})`)
+        filters.push(`Filter("${partition.column_name}", "${partitionOperator(partition)}", ${value})`)
       }
 
       /*

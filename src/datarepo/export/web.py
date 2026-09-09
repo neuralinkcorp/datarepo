@@ -35,19 +35,28 @@ def _schema_from_attribute(
 
     table_info = table.table_metadata
     docs_filters = table_info.docs_args.get("filters", [])
-    filter_values = {f.column: f.value for f in docs_filters if isinstance(f, Filter)}
+    docs_filter_by_column = {f.column: f for f in docs_filters if isinstance(f, Filter)}
     partition_columns = getattr(table, "partition_columns", None)
     if partition_columns is not None:
         partition_col_names = list(partition_columns)
     else:
-        partition_col_names = list(filter_values.keys())
+        partition_col_names = list(docs_filter_by_column.keys())
     stats_cols = getattr(table, "stats_cols", [])
 
     partitions = [
         TablePartition(
             column_name=col,
+            operator=(
+                docs_filter_by_column[col].operator
+                if col in docs_filter_by_column
+                else "="
+            ),
             type_annotation=str(schema.field(col).type),
-            value=filter_values.get(col),
+            value=(
+                docs_filter_by_column[col].value
+                if col in docs_filter_by_column
+                else None
+            ),
         )
         for col in partition_col_names
         if col in schema.names

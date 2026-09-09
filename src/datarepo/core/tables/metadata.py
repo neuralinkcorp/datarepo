@@ -23,6 +23,7 @@ class TableMetadata:
 
 class TablePartition(TypedDict):
     column_name: str
+    operator: str
     type_annotation: str
     value: Any
 
