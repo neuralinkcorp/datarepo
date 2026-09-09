@@ -7,7 +7,7 @@ name = "data-repository"
 version = "0.1.0"
 description = "A simple platform for complex data"
 readme = "docs/README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Gautham Acharya", email = "gautacharya@gmail.com" }
