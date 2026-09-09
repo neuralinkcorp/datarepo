@@ -28,7 +28,7 @@ jobs:
   review:
     if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 17
     steps:
       - uses: actions/checkout@v4
         with:
