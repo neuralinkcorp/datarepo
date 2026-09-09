@@ -31,6 +31,7 @@ MAX_DIFF_CHARS = 200_000
 MAX_INLINE_COMMENTS = 8
 MAX_COMMENT_CHARS = 8_000
 MAX_PREVIOUS_COMMENTS = 30
+MODEL_TIMEOUT_SECONDS = 15 * 60
 REVIEW_EVENT = "COMMENT"
 FOOTER = (
     "*Posted by the code review bot. This is an automated review, "
@@ -607,7 +608,11 @@ def build_user_prompt(
 
 
 def complete_chat(
-    api_key: str, model: str, system: str, user: str, timeout: int = 120
+    api_key: str,
+    model: str,
+    system: str,
+    user: str,
+    timeout: int = MODEL_TIMEOUT_SECONDS,
 ) -> str:
     api_url = os.environ.get("MODEL_API_URL")
     if not api_url:
