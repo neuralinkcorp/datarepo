@@ -63,6 +63,19 @@ function formatSqlPredicate(partition: ExportedTablePartition): string {
   return `${partition.column_name} ${operator} ${value}`
 }
 
+function formatFilterValue(partition: ExportedTablePartition): string {
+  const operator = partitionOperator(partition)
+  if (
+    operator === 'is null' ||
+    operator === 'is not null' ||
+    partition.value === null ||
+    partition.value === undefined
+  ) {
+    return 'None'
+  }
+  return isStringPartition(partition) ? `"${partition.value}"` : `${partition.value}`
+}
+
 interface GenTableCodeOptions {
   catalog: ExportedCatalog;
   database: ExportedDatabase;
@@ -86,8 +99,9 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
       const filters = []
 
       for (const partition of table.partitions) {
-        const value = isStringPartition(partition) ? `"${partition.value}"` : partition.value
-        filters.push(`Filter("${partition.column_name}", "${partitionOperator(partition)}", ${value})`)
+        filters.push(
+          `Filter("${partition.column_name}", "${partitionOperator(partition)}", ${formatFilterValue(partition)})`
+        )
       }
 
       /*
