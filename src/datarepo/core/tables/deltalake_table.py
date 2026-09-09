@@ -33,6 +33,7 @@ from datarepo.core.tables.util import (
 
 READ_PARQUET_RETRY_COUNT = 10
 DEFAULT_TIMEOUT = "150s"
+DEFAULT_PARTITION_BATCH_SIZE = 32
 
 DeltaInputFilters: TypeAlias = InputFilters | str
 
@@ -346,6 +347,8 @@ def fetch_df_by_partition(
     partition: list[tuple[str, str, Any]],
     schema: pa.Schema,
     storage_options: dict[str, Any] | None = None,
+    use_batching: bool = False,
+    batch_size: int = DEFAULT_PARTITION_BATCH_SIZE,
 ) -> pl.DataFrame:
     """
     The native delta-rs read has slower performance. The difference comes from the dataset in
@@ -366,6 +369,15 @@ def fetch_df_by_partition(
     Thus, it makes sense to use read_table() since we have a predefined list of files to be loaded
     from dt.files
 
+    Args:
+        dt (DeltaTable): Delta table to read from.
+        partition (list[tuple[str, str, Any]]): Hive partition filters.
+        schema (pa.Schema): Schema used to normalize the result.
+        storage_options (dict[str, Any] | None, optional): S3 / storage options.
+        use_batching (bool, optional): When True, read files in batches to reduce peak memory
+            for partitions with very large file counts. Defaults to False.
+        batch_size (int, optional): Files per batch when ``use_batching`` is True.
+            Defaults to ``DEFAULT_PARTITION_BATCH_SIZE``.
     """
     files = dt.files(partition_filters=partition)
 
@@ -375,6 +387,14 @@ def fetch_df_by_partition(
         # NOTE: polars has a bug where with_columns(...) on an empty dataframe with no columns will add a row
         # for all new columns. Workaround by adding the columns before normalizing
         return _empty_normalized_df(schema)
+
+    if use_batching:
+        return fetch_dfs_by_paths_batching(
+            files=files,
+            schema=schema,
+            storage_options=storage_options,
+            batch_size=batch_size,
+        )
 
     return fetch_dfs_by_paths(
         files=files, schema=schema, storage_options=storage_options
@@ -413,6 +433,47 @@ def fetch_dfs_by_paths(
     dfs = [future.result() for future in futures]
 
     return pl.concat([_normalize_df(df, schema=schema) for df in dfs])
+
+
+def fetch_dfs_by_paths_batching(
+    files: list[str],
+    schema: pa.Schema,
+    storage_options: dict[str, Any] | None = None,
+    batch_size: int = DEFAULT_PARTITION_BATCH_SIZE,
+) -> pl.DataFrame:
+    """Fetch parquet files in batches to cap concurrent reads and peak memory.
+
+    Each batch reuses :func:`fetch_dfs_by_paths` so normalization behavior matches the
+    non-batched path. Batches are processed sequentially.
+
+    Args:
+        files (list[str]): Parquet file paths to read.
+        schema (pa.Schema): Schema to normalize each batch to.
+        storage_options (dict[str, Any] | None, optional): Storage options for reads.
+        batch_size (int, optional): Maximum files loaded concurrently per batch.
+
+    Returns:
+        pl.DataFrame: Concatenated, schema-normalized result across all files.
+    """
+    if not files:
+        return _empty_normalized_df(schema)
+
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
+    batch_results = [
+        fetch_dfs_by_paths(
+            files=files[start : start + batch_size],
+            schema=schema,
+            storage_options=storage_options,
+        )
+        for start in range(0, len(files), batch_size)
+    ]
+
+    if len(batch_results) == 1:
+        return batch_results[0]
+
+    return pl.concat(batch_results)
 
 
 def _empty_normalized_df(schema: pa.Schema) -> pl.DataFrame:
