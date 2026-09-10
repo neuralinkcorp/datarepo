@@ -213,6 +213,27 @@ cache_options = DeltaCacheOptions(
 >>> df = db.supplier(cache_options=cache_options)
 ```
 
+### Partition batching
+For partitions with very large file counts, `fetch_df_by_partition` can process files in batches to reduce peak memory. Default is off for backward compatibility:
+
+```python
+from datarepo.core.tables.deltalake_table import fetch_df_by_partition
+
+df = fetch_df_by_partition(
+    dt=delta_table,
+    partition=[("implant_id", "=", 5956), ("date", "=", "2024-04-05")],
+    schema=table_schema,
+    use_batching=True,
+    batch_size=32,
+)
+```
+
+Run the synthetic memory benchmark locally:
+
+```bash
+PYTHONPATH=src python scripts/benchmark_partition_batching.py --file-count 80
+```
+
 ### Custom columns
 You can add custom computed columns to tables:
 
