@@ -158,15 +158,16 @@ class DeltalakeTable(TableProtocol):
 
         schema = self.schema
         filters = {
-            f.column: f.value
+            f.column: f
             for f in self.table_metadata.docs_args.get("filters", [])
             if isinstance(f, Filter)
         }
         partitions = [
             TablePartition(
                 column_name=col,
+                operator=filters[col].operator if col in filters else "=",
                 type_annotation=str(schema.field(col).type),
-                value=filters.get(col),
+                value=filters[col].value if col in filters else None,
             )
             for col in partition_cols
         ]
