@@ -336,11 +336,32 @@ class ClickHouseTable(TableProtocol):
 
         Raises:
             ValueError: If a filter uses an unsupported operator, before creating
-                a backend client or executing a query.
+                a backend client or executing a query, or if a configured unique
+                column is missing from the declared schema. Key validation is
+                deferred until a read; constructing a table does not connect.
         """
         config = config or self.config
 
-        query = self._build_query(filters, columns, config)
+        query_columns = columns
+        output_columns = None
+        if self.unique_columns:
+            missing_keys = [
+                c for c in self.unique_columns if c not in self.schema.names
+            ]
+            if missing_keys:
+                raise ValueError(
+                    f"Unique columns missing from table schema: {missing_keys}"
+                )
+            if columns:
+                output_columns = [c for c in columns if c in self.schema.names]
+                if output_columns:
+                    # Transport the complete identity, even for a partial public
+                    # projection. Preserve the all-invalid '*' fallback below.
+                    query_columns = output_columns + [
+                        c for c in self.unique_columns if c not in output_columns
+                    ]
+
+        query = self._build_query(filters, query_columns, config)
 
         client = config.get_client()
         arrow_result = client.query_arrow(query)
@@ -349,8 +370,8 @@ class ClickHouseTable(TableProtocol):
             df = df.to_frame()
 
         if self.unique_columns:
-            available_unique_cols = [c for c in self.unique_columns if c in df.columns]
-            if available_unique_cols:
-                df = df.filter(pl.struct(available_unique_cols).is_last_distinct())
+            df = df.filter(pl.struct(self.unique_columns).is_last_distinct())
+            if output_columns:
+                df = df.select(output_columns)
 
         return df.lazy()

@@ -10,7 +10,7 @@ from datarepo.core.tables.clickhouse_table import (
     ClickHouseTableConfig,
     make_clickhouse_config,
 )
-from datarepo.core.tables.filters import Filter
+from datarepo.core.tables.filters import Filter, FilterOperator
 from datarepo.core.tables.metadata import TableSchema
 
 
@@ -147,7 +147,7 @@ class TestClickHouseTable:
     def test_filter_operators(
         self,
         clickhouse_table: ClickHouseTable,
-        operator: str,
+        operator: FilterOperator,
         value: str,
         expected_condition: str,
     ):
@@ -222,6 +222,10 @@ class TestClickHouseTable:
 
         filters = [Filter("implant_id", "=", 1)]
         columns = ["implant_id", "value"]
+        # The backend returns the requested hidden key; the public result does not.
+        mock_client.query_arrow.return_value = mock_df.with_columns(
+            pl.lit("2026-09-14").alias("date")
+        ).to_arrow()
         result = clickhouse_table(filters=filters, columns=columns).collect()
 
         mock_get_client.assert_called_once_with(
@@ -235,7 +239,7 @@ class TestClickHouseTable:
             settings={},
         )
         mock_client.query_arrow.assert_called_once_with(
-            "SELECT `implant_id`, `value` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
+            "SELECT `implant_id`, `value`, `date` FROM `test_db`.`test_table` WHERE (`implant_id` = 1)"
         )
 
         assert result.equals(mock_df)
@@ -269,7 +273,7 @@ class TestClickHouseTable:
         self, mock_get_client: MagicMock, clickhouse_table: ClickHouseTable
     ):
         """An explicit config argument wins over the table's stored config."""
-        mock_df = pl.DataFrame({"implant_id": [1]})
+        mock_df = pl.DataFrame({"implant_id": [1], "date": ["2026-09-14"]})
         mock_client = MagicMock()
         mock_client.query_arrow.return_value = mock_df.to_arrow()
         mock_get_client.return_value = mock_client
