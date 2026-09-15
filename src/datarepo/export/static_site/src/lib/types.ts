@@ -1,7 +1,8 @@
 export interface ExportedTablePartition {
   column_name: string
+  operator?: string
   type_annotation: string | null
-  value: string | number
+  value: string | number | null
 }
 
 export interface ExportedTableColumn {
