@@ -139,8 +139,96 @@ Output captured by running the example:
 ```
 
 The query is collected while the temporary file exists. The original file is
-removed automatically when the example exits. For catalogs and exports, see
-[the example catalog](examples/tpc_catalog.py) and
+removed automatically when the example exits.
+
+### Create a table module and catalog
+
+A database groups tables from a Python module; a catalog groups databases.
+To keep the joined data available for catalog queries and exports, save this as
+`local_tables.py` beside `local_quickstart.py`. Importing it writes a small
+`parts_and_suppliers.parquet` file beside the module.
+
+<!-- local-catalog-tables -->
+```python
+from pathlib import Path
+
+from datarepo.core import ParquetTable, PartitioningScheme
+from local_quickstart import run_example, suppliers
+
+data_path = Path(__file__).with_name("parts_and_suppliers.parquet")
+run_example().write_parquet(data_path)
+parts_and_suppliers = ParquetTable(
+    name="parts_and_suppliers",
+    uri=str(data_path),
+    partitioning=[],
+    partitioning_scheme=PartitioningScheme.HIVE,
+)
+```
+
+Save the catalog definition as `local_catalog.py` in the same directory:
+
+<!-- local-catalog-definition -->
+```python
+from datarepo.core import Catalog, ModuleDatabase
+import local_tables
+
+LocalCatalog = Catalog({"local": ModuleDatabase(local_tables)})
+```
+
+The database exposes both the persisted Parquet table and the function-backed
+`suppliers` table. Query the Parquet table through the catalog:
+
+<!-- local-catalog-query -->
+```python
+from datarepo.core import Filter
+from local_catalog import LocalCatalog
+
+result = LocalCatalog.db("local").table(
+    "parts_and_suppliers", filters=[Filter("supplier_id", "=", 20)]
+).sort("part_id").collect()
+print(result.to_dicts())
+```
+
+This returns Bolt and Washer, both supplied by Supplier B. Use the same Linux
+environment setting shown above when running these examples.
+
+### Generate a static site catalog
+
+Export the catalog metadata and bundled site assets to a dedicated output
+directory. The exporter replaces that directory when run again.
+
+<!-- local-catalog-site -->
+```python
+from datarepo.export.web import export_and_generate_site
+from local_catalog import LocalCatalog
+
+export_and_generate_site(
+    catalogs=[("local", LocalCatalog)], output_dir="local-catalog-site"
+)
+```
+
+### Generate an API configuration
+
+The ROAPI exporter includes supported storage-backed tables. Here it exports
+`parts_and_suppliers`; the Python-backed `suppliers` table is omitted. JSON is
+also valid YAML, so the standard library can write the configuration:
+
+<!-- local-catalog-roapi -->
+```python
+import json
+from pathlib import Path
+
+from datarepo.export.roapi import export_to_roapi_tables
+from local_catalog import LocalCatalog
+
+Path("roapi-config.yaml").write_text(
+    json.dumps({"tables": export_to_roapi_tables(LocalCatalog)}, indent=2)
+)
+```
+
+The generated configuration references the local Parquet file; keep that file
+available when running [ROAPI](https://github.com/roapi/roapi). For larger
+catalogs, see [the example catalog](examples/tpc_catalog.py) and
 [the site generation example](examples/generate_tpc_site.py).
 
 ## About Neuralink

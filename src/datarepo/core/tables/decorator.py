@@ -58,6 +58,7 @@ class FunctionTable(TableProtocol):
         partitions = [
             TablePartition(
                 column_name=filter.column,
+                operator=filter.operator,
                 type_annotation=type(filter.value).__name__,
                 value=filter.value,
             )

@@ -1,8 +1,13 @@
+from pathlib import Path
+
+import polars as pl
 import pytest
 import pyarrow as pa
 
 from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
+from datarepo.core.tables.decorator import table
 from datarepo.core.tables.deltalake_table import DeltalakeTable
+from datarepo.core.tables.parquet_table import ParquetTable
 from datarepo.core.tables.util import Filter
 from datarepo.export.web import export_table
 
@@ -87,6 +92,7 @@ class TestWebExport:
         partition_names = [p["column_name"] for p in exported["partitions"]]
         assert partition_names == ["implant_id", "date", "hour"]
         assert exported["partitions"][0]["value"] == 12345
+        assert [p["operator"] for p in exported["partitions"]] == ["=", "=", "="]
 
     def test_export_table_delta_without_docs_filters(self):
         """Test that export_table works for delta tables without docs_filters."""
@@ -135,3 +141,127 @@ class TestWebExport:
         assert partition_names == ["implant_id", "date"]
         assert exported["partitions"][0]["value"] == 12345
         assert exported["partitions"][1]["value"] == "2025-07-21"
+        assert [p["operator"] for p in exported["partitions"]] == ["=", "="]
+
+    def test_export_table_preserves_docs_filter_operator(self):
+        table = DeltalakeTable(
+            name="test_delta",
+            uri="s3://fake-bucket/test/table",
+            schema=pa.schema(
+                [
+                    ("p_name", pa.string()),
+                    ("p_size", pa.int32()),
+                ]
+            ),
+            docs_filters=[
+                Filter("p_name", "contains", "Brand"),
+                Filter("p_size", ">=", 10),
+            ],
+        )
+
+        exported = export_table("test_delta", table)
+
+        assert [
+            (p["column_name"], p["operator"], p["value"])
+            for p in exported["partitions"]
+        ] == [
+            ("p_name", "contains", "Brand"),
+            ("p_size", ">=", 10),
+        ]
+
+    def test_export_clickhouse_preserves_docs_filter_operator(self, clickhouse_config):
+        clickhouse_table = ClickHouseTable(
+            name="test_table",
+            schema=pa.schema(
+                [
+                    ("str_value", pa.string()),
+                    ("value", pa.int64()),
+                ]
+            ),
+            config=clickhouse_config,
+            docs_filters=[Filter("str_value", "contains", "abc")],
+        )
+
+        exported = export_table("test_table", clickhouse_table)
+
+        assert exported["partitions"] == [
+            {
+                "column_name": "str_value",
+                "operator": "contains",
+                "type_annotation": "string",
+                "value": "abc",
+            }
+        ]
+
+    def test_export_parquet_preserves_docs_filter_operator(self, tmp_path: Path):
+        path = tmp_path / "example.parquet"
+        pl.DataFrame({"id": [1, 2], "name": ["acme", "other"]}).write_parquet(path)
+        parquet_table = ParquetTable(
+            name="example",
+            uri=str(path),
+            partitioning=[],
+            docs_filters=[Filter("name", "contains", "acme")],
+        )
+
+        exported = export_table("example", parquet_table)
+
+        assert exported["partitions"][0]["column_name"] == "name"
+        assert exported["partitions"][0]["operator"] == "contains"
+        assert exported["partitions"][0]["value"] == "acme"
+
+    def test_export_function_table_preserves_docs_filter_operator(self):
+        @table(docs_args={"filters": [Filter("name", "contains", "acme")]})
+        def suppliers():
+            return pl.LazyFrame({"name": ["acme", "other"]})
+
+        exported = export_table("suppliers", suppliers)
+
+        assert exported["partitions"][0]["column_name"] == "name"
+        assert exported["partitions"][0]["operator"] == "contains"
+        assert exported["partitions"][0]["value"] == "acme"
+
+    def test_delta_get_schema_preserves_docs_filter_operator(self):
+        delta_table = DeltalakeTable(
+            name="test_delta",
+            uri="s3://fake-bucket/test/table",
+            schema=pa.schema(
+                [
+                    ("implant_id", pa.int64()),
+                    ("date", pa.string()),
+                ]
+            ),
+            partition_columns=["implant_id", "date"],
+            docs_filters=[Filter("implant_id", ">=", 1)],
+        )
+
+        schema = delta_table.get_schema()
+
+        assert [
+            (p["column_name"], p["operator"], p["value"]) for p in schema.partitions
+        ] == [
+            ("implant_id", ">=", 1),
+            ("date", "=", None),
+        ]
+
+    def test_export_partition_without_docs_filter_defaults_to_equality(self):
+        delta_table = DeltalakeTable(
+            name="test_delta",
+            uri="s3://fake-bucket/test/table",
+            schema=pa.schema(
+                [
+                    ("implant_id", pa.int64()),
+                    ("date", pa.string()),
+                ]
+            ),
+            partition_columns=["implant_id", "date"],
+        )
+
+        exported = export_table("test_delta", delta_table)
+
+        assert [
+            (p["column_name"], p["operator"], p["value"])
+            for p in exported["partitions"]
+        ] == [
+            ("implant_id", "=", None),
+            ("date", "=", None),
+        ]
