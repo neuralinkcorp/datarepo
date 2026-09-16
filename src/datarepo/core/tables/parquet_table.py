@@ -149,6 +149,10 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
         raise ValueError(f"Unsupported operator {filter.operator}")
 
 
+class DatasourceNotAvailable(FileNotFoundError):
+    """No Parquet sources were found from which to infer a table's schema."""
+
+
 class ParquetTable(TableProtocol):
     """A table that is stored in Parquet format."""
 
@@ -189,8 +193,9 @@ class ParquetTable(TableProtocol):
             parquet_file_name (str, optional): parquet file name to use when building file fragments.
             table_metadata_args (dict[str, Any] | None, optional): additional metadata arguments for the table.
             schema (dict[str, pl.DataType] | None, optional): explicit schema for the table.
-                When provided, allows scan_parquet to succeed even when the S3 path
-                contains no files (returns an empty DataFrame with this schema).
+                When provided, an empty source listing returns an empty DataFrame
+                with this schema and the declared partition columns. Missing literal
+                paths, access errors and invalid Parquet files still raise errors.
                 Defaults to None.
 
         Raises:
@@ -261,6 +266,10 @@ class ParquetTable(TableProtocol):
     ) -> NlkDataFrame:
         """Fetches data from the Parquet table based on the provided filters and columns.
 
+        Source metadata is resolved here; row reads and query execution remain lazy.
+        An empty source listing with an explicit schema returns a typed empty query.
+        Create a new query to include files that arrive after that empty listing.
+
         Args:
             filters (InputFilters | None, optional): filters to apply to the data. Defaults to None.
             columns (Optional[list[str]], optional): columns to select from the data. Defaults to None.
@@ -269,6 +278,9 @@ class ParquetTable(TableProtocol):
 
         Returns:
             NlkDataFrame: A DataFrame containing the filtered data from the Parquet table.
+
+        Raises:
+            DatasourceNotAvailable: if no sources are found and no schema was supplied.
         """
         normalized_filters = normalize_filters(filters)
         (
@@ -283,20 +295,7 @@ class ParquetTable(TableProtocol):
             endpoint_url=endpoint_url,
         )
 
-        hive_schema = (
-            {partition.column: partition.col_type for partition in remaining_partitions}
-            if remaining_partitions
-            else None
-        )
-
-        df = pl.scan_parquet(
-            uri,
-            hive_partitioning=len(remaining_partitions) > 0,
-            allow_missing_columns=True,
-            storage_options=storage_options,
-            hive_schema=hive_schema,
-            schema=self.schema,
-        )
+        df = self._scan_parquet(uri, remaining_partitions, storage_options)
 
         if applied_filters:
             # Add columns removed from partitions and added to uri
@@ -320,6 +319,56 @@ class ParquetTable(TableProtocol):
 
         if columns:
             df = df.select(columns)
+
+        return df
+
+    def _scan_parquet(
+        self,
+        uri: str,
+        remaining_partitions: list[Partition],
+        storage_options: dict[str, str],
+    ) -> pl.LazyFrame:
+        hive_schema = (
+            {partition.column: partition.col_type for partition in remaining_partitions}
+            if remaining_partitions
+            else None
+        )
+
+        def scan(schema: dict[str, pl.DataType] | None = None) -> pl.LazyFrame:
+            return pl.scan_parquet(
+                uri,
+                hive_partitioning=len(remaining_partitions) > 0,
+                allow_missing_columns=True,
+                storage_options=storage_options,
+                hive_schema=hive_schema,
+                schema=schema,
+            )
+
+        try:
+            # An explicit schema can hide an empty source list until collection.
+            # Resolve metadata without it so no-source errors stay at this boundary.
+            df = scan()
+            df.collect_schema()
+        except pl.exceptions.ComputeError as error:
+            # Polars 1.9-1.13 exposes this condition as an untyped ComputeError.
+            if str(error).partition("\n")[0] != "expected at least 1 source":
+                raise
+            if self.schema is None:
+                raise DatasourceNotAvailable(
+                    f"Parquet table {self.name!r} has no data sources at {uri!r}. "
+                    "Supply a schema to read an empty table."
+                ) from error
+            # Seed partition columns before adding literals, which could otherwise
+            # create a row in a zero-column empty frame.
+            df = pl.LazyFrame(
+                schema={
+                    **self.schema,
+                    **{p.column: p.col_type for p in self.partitioning},
+                }
+            )
+        else:
+            if self.schema is not None:
+                df = scan(self.schema)
 
         return df
 
