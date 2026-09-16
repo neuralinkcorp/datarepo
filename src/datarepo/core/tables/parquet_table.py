@@ -428,6 +428,13 @@ class ParquetTable(TableProtocol):
 
             applied_filters.append(partition_filter)
 
+            # An emptied branch is true within the selected partition. Keeping
+            # the other OR branches would incorrectly restrict its rows, and
+            # their predicates cannot justify pruning any deeper partitions.
+            if any(not filter_set for filter_set in filters):
+                filters = [[]]
+                break
+
         uri = path.join(
             uri, ""
         )  # trailing slash prevents inclusion of partitions that are subsets of other partitions
