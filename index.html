@@ -452,143 +452,160 @@
 <li><strong>Code as a catalog</strong> - define tables <em>in code</em>, generate a static site catalog and APIs without running services</li>
 </ol>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
-<p>Install the latest version with:</p>
-<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>data-repository
+<p>Install the package in a virtual environment:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>data-repository
 </code></pre></div>
-<h3 id="create-a-table-and-catalog">Create a table and catalog<a class="headerlink" href="#create-a-table-and-catalog" title="Permanent link">&para;</a></h3>
-<p>First, create a module to define your tables (e.g., <code>tpch_tables.py</code>):</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># tpch_tables.py</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
-    <span class="n">DeltalakeTable</span><span class="p">,</span>
-    <span class="n">ParquetTable</span><span class="p">,</span>
-    <span class="n">Filter</span><span class="p">,</span>
-    <span class="n">table</span><span class="p">,</span>
-    <span class="n">NlkDataFrame</span><span class="p">,</span>
-    <span class="n">Partition</span><span class="p">,</span>
-    <span class="n">PartitioningScheme</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
+<p>Save the following as <code>local_quickstart.py</code> and run it with
+<code>AWS_EC2_METADATA_DISABLED=true .venv/bin/python local_quickstart.py</code> on Linux.
+The environment setting prevents EC2 metadata discovery: this version asks boto3
+for storage options even for local files. A missing-credentials log is harmless
+for this local example. It writes a small synthetic Parquet file,
+filters parts, and joins them to a function-backed supplier table. No bucket,
+server, account or credentials are needed. Both inputs use equal-length columns;
+<code>part_id</code> and <code>supplier_id</code> are distinct keys.</p>
+<p>The runnable source is <a href="examples/local_quickstart.py">examples/local_quickstart.py</a>.
+Tests check this embedded source and the displayed output for drift.</p>
+<!-- local-quickstart-code -->
+<div class="highlight"><pre><span></span><code><span class="sd">"""Run a local Parquet query and join using synthetic data; no credentials needed."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tempfile</span><span class="w"> </span><span class="kn">import</span> <span class="n">TemporaryDirectory</span>
+
 <span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
 
-<span class="c1"># Delta Lake backed table</span>
-<span class="n">part</span> <span class="o">=</span> <span class="n">DeltalakeTable</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">"part"</span><span class="p">,</span>
-    <span class="n">uri</span><span class="o">=</span><span class="s2">"s3://my-bucket/tpc-h/part"</span><span class="p">,</span>
-    <span class="n">schema</span><span class="o">=</span><span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">(</span>
-        <span class="p">[</span>
-            <span class="p">(</span><span class="s2">"p_partkey"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_name"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_mfgr"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_brand"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_type"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_size"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int32</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_container"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-            <span class="p">(</span><span class="s2">"p_retailprice"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">decimal128</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">2</span><span class="p">)),</span>
-            <span class="p">(</span><span class="s2">"p_comment"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-        <span class="p">]</span>
-    <span class="p">),</span>
-    <span class="n">docs_filters</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">Filter</span><span class="p">(</span><span class="s2">"p_partkey"</span><span class="p">,</span> <span class="s2">"="</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
-        <span class="n">Filter</span><span class="p">(</span><span class="s2">"p_brand"</span><span class="p">,</span> <span class="s2">"="</span><span class="p">,</span> <span class="s2">"Brand#1"</span><span class="p">),</span>
-    <span class="p">],</span>
-    <span class="n">unique_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">"p_partkey"</span><span class="p">],</span>
-    <span class="n">description</span><span class="o">=</span><span class="s2">"""</span>
-<span class="s2">    Part information from the TPC-H benchmark.</span>
-<span class="s2">    Contains details about parts including name, manufacturer, brand, and retail price.</span>
-<span class="s2">    """</span><span class="p">,</span>
-    <span class="n">table_metadata_args</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">"data_input"</span><span class="p">:</span> <span class="s2">"Part catalog data from manufacturing systems, updated daily"</span><span class="p">,</span>
-        <span class="s2">"latency_info"</span><span class="p">:</span> <span class="s2">"Daily batch updates from manufacturing ERP system"</span><span class="p">,</span>
-        <span class="s2">"example_notebook"</span><span class="p">:</span> <span class="s2">"https://example.com/notebooks/part_analysis.ipynb"</span><span class="p">,</span>
-    <span class="p">},</span>
-<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Filter</span><span class="p">,</span> <span class="n">NlkDataFrame</span><span class="p">,</span> <span class="n">ParquetTable</span><span class="p">,</span> <span class="n">table</span>
 
-<span class="c1"># Table defined as a function</span>
-<span class="nd">@table</span><span class="p">(</span>
-    <span class="n">data_input</span><span class="o">=</span><span class="s2">"Supplier master data from vendor management system &lt;code&gt;/api/suppliers/master&lt;/code&gt; endpoint"</span><span class="p">,</span>
-    <span class="n">latency_info</span><span class="o">=</span><span class="s2">"Updated weekly by the supplier_master_sync DAG on Airflow"</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">supplier</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Supplier information from the TPC-H benchmark."""</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">"s_suppkey"</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span>
-        <span class="s2">"s_name"</span><span class="p">:</span> <span class="p">[</span>
-            <span class="s2">"Supplier#1"</span><span class="p">,</span>
-            <span class="s2">"Supplier#2"</span><span class="p">,</span>
-        <span class="p">],</span>
-        <span class="s2">"s_address"</span><span class="p">:</span> <span class="p">[</span>
-            <span class="s2">"123 Main St"</span><span class="p">,</span>
-            <span class="s2">"456 Oak Ave"</span><span class="p">,</span>
-        <span class="p">],</span>
-        <span class="s2">"s_nationkey"</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
-        <span class="s2">"s_phone"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"555-0001"</span><span class="p">,</span> <span class="s2">"555-0002"</span><span class="p">],</span>
-        <span class="s2">"s_acctbal"</span><span class="p">:</span> <span class="p">[</span><span class="mf">1000.00</span><span class="p">,</span> <span class="mf">2000.00</span><span class="p">],</span>
-        <span class="s2">"s_comment"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"Comment 1"</span><span class="p">,</span> <span class="s2">"Comment 2"</span><span class="p">],</span>
-    <span class="p">}</span>
-    <span class="k">return</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="c1"># tpch_catalog.py</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Catalog</span><span class="p">,</span> <span class="n">ModuleDatabase</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">tpch_tables</span>
 
-<span class="c1"># Create a catalog</span>
-<span class="n">dbs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"tpc-h"</span><span class="p">:</span> <span class="n">ModuleDatabase</span><span class="p">(</span><span class="n">tpch_tables</span><span class="p">)}</span>
-<span class="n">TPCHCatalog</span> <span class="o">=</span> <span class="n">Catalog</span><span class="p">(</span><span class="n">dbs</span><span class="p">)</span>
+<span class="nd">@table</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">suppliers</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">NlkDataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Synthetic suppliers, provided as a regular Python function."""</span>
+    <span class="k">return</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">(</span>
+        <span class="p">{</span><span class="s2">"supplier_id"</span><span class="p">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">],</span> <span class="s2">"supplier_name"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"Supplier A"</span><span class="p">,</span> <span class="s2">"Supplier B"</span><span class="p">]}</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_example</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"datarepo-quickstart-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">directory</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span> <span class="o">/</span> <span class="s2">"parts.parquet"</span>
+        <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">"part_id"</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span>
+                <span class="s2">"part_name"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"Bolt"</span><span class="p">,</span> <span class="s2">"Nut"</span><span class="p">,</span> <span class="s2">"Washer"</span><span class="p">,</span> <span class="s2">"Bracket"</span><span class="p">],</span>
+                <span class="s2">"supplier_id"</span><span class="p">:</span> <span class="p">[</span><span class="mi">20</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span>
+            <span class="p">}</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">ParquetTable</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"parts"</span><span class="p">,</span> <span class="n">uri</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="n">partitioning</span><span class="o">=</span><span class="p">[])</span>
+
+        <span class="c1"># Join on the supplier relationship, not on the unrelated part ID.</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">parts</span><span class="p">(</span><span class="n">filters</span><span class="o">=</span><span class="p">[</span><span class="n">Filter</span><span class="p">(</span><span class="s2">"part_id"</span><span class="p">,</span> <span class="s2">"in"</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])])</span>
+            <span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">suppliers</span><span class="p">(),</span> <span class="n">on</span><span class="o">=</span><span class="s2">"supplier_id"</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">"part_id"</span><span class="p">,</span> <span class="s2">"part_name"</span><span class="p">,</span> <span class="s2">"supplier_id"</span><span class="p">,</span> <span class="s2">"supplier_name"</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="s2">"part_id"</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">collect</span><span class="p">()</span>  <span class="c1"># Read the local file before the temporary directory is removed.</span>
+        <span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">run_example</span><span class="p">()</span><span class="o">.</span><span class="n">to_dicts</span><span class="p">(),</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
 </code></pre></div>
-<h3 id="query-the-data">Query the data<a class="headerlink" href="#query-the-data" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">tpch_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">TPCHCatalog</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Filter</span>
-<span class="o">&gt;&gt;&gt;</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="c1"># Get part and supplier information</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">part_data</span> <span class="o">=</span> <span class="n">TPCHCatalog</span><span class="o">.</span><span class="n">db</span><span class="p">(</span><span class="s2">"tpc-h"</span><span class="p">)</span><span class="o">.</span><span class="n">table</span><span class="p">(</span>
-<span class="o">...</span>     <span class="s2">"part"</span><span class="p">,</span>
-<span class="o">...</span>     <span class="p">(</span>
-<span class="o">...</span>         <span class="n">Filter</span><span class="p">(</span><span class="s1">'p_partkey'</span><span class="p">,</span> <span class="s1">'in'</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]),</span>
-<span class="o">...</span>         <span class="n">Filter</span><span class="p">(</span><span class="s1">'p_brand'</span><span class="p">,</span> <span class="s1">'in'</span><span class="p">,</span> <span class="p">[</span><span class="s1">'Brand#1'</span><span class="p">,</span> <span class="s1">'Brand#2'</span><span class="p">,</span> <span class="s1">'Brand#3'</span><span class="p">]),</span>
-<span class="o">...</span>     <span class="p">),</span>
-<span class="o">...</span> <span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">supplier_data</span> <span class="o">=</span> <span class="n">TPCHCatalog</span><span class="o">.</span><span class="n">db</span><span class="p">(</span><span class="s2">"tpc-h"</span><span class="p">)</span><span class="o">.</span><span class="n">table</span><span class="p">(</span><span class="s2">"supplier"</span><span class="p">)</span>
-<span class="o">&gt;&gt;&gt;</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="c1"># Join part and supplier data and select specific columns</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">joined_data</span> <span class="o">=</span> <span class="n">part_data</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
-<span class="o">...</span>     <span class="n">supplier_data</span><span class="p">,</span>
-<span class="o">...</span>     <span class="n">left_on</span><span class="o">=</span><span class="s2">"p_partkey"</span><span class="p">,</span>
-<span class="o">...</span>     <span class="n">right_on</span><span class="o">=</span><span class="s2">"s_suppkey"</span><span class="p">,</span>
-<span class="o">...</span> <span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">([</span><span class="s2">"p_name"</span><span class="p">,</span> <span class="s2">"p_brand"</span><span class="p">,</span> <span class="s2">"s_name"</span><span class="p">])</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
-<span class="o">&gt;&gt;&gt;</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="nb">print</span><span class="p">(</span><span class="n">joined_data</span><span class="p">)</span>
-<span class="n">shape</span><span class="p">:</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<span class="err">┌────────────┬────────────┬────────────┐</span>
-<span class="err">│</span> <span class="n">p_name</span>     <span class="err">│</span> <span class="n">p_brand</span>    <span class="err">│</span> <span class="n">s_name</span>     <span class="err">│</span>
-<span class="err">│</span> <span class="o">---</span>        <span class="err">│</span> <span class="o">---</span>        <span class="err">│</span> <span class="o">---</span>        <span class="err">│</span>
-<span class="err">│</span> <span class="nb">str</span>        <span class="err">│</span> <span class="nb">str</span>        <span class="err">│</span> <span class="nb">str</span>        <span class="err">│</span>
-<span class="err">╞════════════╪════════════╪════════════╡</span>
-<span class="err">│</span> <span class="n">Part</span><span class="c1">#1     │ Brand#1    │ Supplier#1 │</span>
-<span class="err">│</span> <span class="n">Part</span><span class="c1">#2     │ Brand#2    │ Supplier#2 │</span>
-<span class="err">│</span> <span class="n">Part</span><span class="c1">#3     │ Brand#3    │ Supplier#3 │</span>
-<span class="err">│</span> <span class="n">Part</span><span class="c1">#4     │ Brand#1    │ Supplier#4 │</span>
-<span class="err">└────────────┴────────────┴────────────┘</span>
+<p>Output captured by running the example:</p>
+<!-- local-quickstart-output -->
+<div class="highlight"><pre><span></span><code><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"part_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"part_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Bolt"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Supplier B"</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"part_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"part_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Nut"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Supplier A"</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"part_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"part_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Washer"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"supplier_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Supplier B"</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">]</span>
 </code></pre></div>
+<p>The query is collected while the temporary file exists. The original file is
+removed automatically when the example exits.</p>
+<h3 id="create-a-table-module-and-catalog">Create a table module and catalog<a class="headerlink" href="#create-a-table-module-and-catalog" title="Permanent link">&para;</a></h3>
+<p>A database groups tables from a Python module; a catalog groups databases.
+To keep the joined data available for catalog queries and exports, save this as
+<code>local_tables.py</code> beside <code>local_quickstart.py</code>. Importing it writes a small
+<code>parts_and_suppliers.parquet</code> file beside the module.</p>
+<!-- local-catalog-tables -->
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParquetTable</span><span class="p">,</span> <span class="n">PartitioningScheme</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">local_quickstart</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_example</span><span class="p">,</span> <span class="n">suppliers</span>
+
+<span class="n">data_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="s2">"parts_and_suppliers.parquet"</span><span class="p">)</span>
+<span class="n">run_example</span><span class="p">()</span><span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="n">data_path</span><span class="p">)</span>
+<span class="n">parts_and_suppliers</span> <span class="o">=</span> <span class="n">ParquetTable</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"parts_and_suppliers"</span><span class="p">,</span>
+    <span class="n">uri</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">data_path</span><span class="p">),</span>
+    <span class="n">partitioning</span><span class="o">=</span><span class="p">[],</span>
+    <span class="n">partitioning_scheme</span><span class="o">=</span><span class="n">PartitioningScheme</span><span class="o">.</span><span class="n">HIVE</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Save the catalog definition as <code>local_catalog.py</code> in the same directory:</p>
+<!-- local-catalog-definition -->
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Catalog</span><span class="p">,</span> <span class="n">ModuleDatabase</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">local_tables</span>
+
+<span class="n">LocalCatalog</span> <span class="o">=</span> <span class="n">Catalog</span><span class="p">({</span><span class="s2">"local"</span><span class="p">:</span> <span class="n">ModuleDatabase</span><span class="p">(</span><span class="n">local_tables</span><span class="p">)})</span>
+</code></pre></div>
+<p>The database exposes both the persisted Parquet table and the function-backed
+<code>suppliers</code> table. Query the Parquet table through the catalog:</p>
+<!-- local-catalog-query -->
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Filter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">local_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalCatalog</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">LocalCatalog</span><span class="o">.</span><span class="n">db</span><span class="p">(</span><span class="s2">"local"</span><span class="p">)</span><span class="o">.</span><span class="n">table</span><span class="p">(</span>
+    <span class="s2">"parts_and_suppliers"</span><span class="p">,</span> <span class="n">filters</span><span class="o">=</span><span class="p">[</span><span class="n">Filter</span><span class="p">(</span><span class="s2">"supplier_id"</span><span class="p">,</span> <span class="s2">"="</span><span class="p">,</span> <span class="mi">20</span><span class="p">)]</span>
+<span class="p">)</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="s2">"part_id"</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">to_dicts</span><span class="p">())</span>
+</code></pre></div>
+<p>This returns Bolt and Washer, both supplied by Supplier B. Use the same Linux
+environment setting shown above when running these examples.</p>
 <h3 id="generate-a-static-site-catalog">Generate a static site catalog<a class="headerlink" href="#generate-a-static-site-catalog" title="Permanent link">&para;</a></h3>
-<p>You can export your catalog to a static site with a single command:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># export.py</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.export.web</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_and_generate_site</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">tpch_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">TPCHCatalog</span>
+<p>Export the catalog metadata and bundled site assets to a dedicated output
+directory. The exporter replaces that directory when run again.</p>
+<!-- local-catalog-site -->
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.export.web</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_and_generate_site</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">local_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalCatalog</span>
 
-<span class="c1"># Export and generate the site</span>
 <span class="n">export_and_generate_site</span><span class="p">(</span>
-    <span class="n">catalogs</span><span class="o">=</span><span class="p">[(</span><span class="s2">"tpch"</span><span class="p">,</span> <span class="n">TPCHCatalog</span><span class="p">)],</span> <span class="n">output_dir</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+    <span class="n">catalogs</span><span class="o">=</span><span class="p">[(</span><span class="s2">"local"</span><span class="p">,</span> <span class="n">LocalCatalog</span><span class="p">)],</span> <span class="n">output_dir</span><span class="o">=</span><span class="s2">"local-catalog-site"</span>
 <span class="p">)</span>
 </code></pre></div>
-<h3 id="generate-an-api">Generate an API<a class="headerlink" href="#generate-an-api" title="Permanent link">&para;</a></h3>
-<p>You can also generate a YAML configuration for <a href="https://github.com/roapi/roapi">ROAPI</a>:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">roapi</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">tpch_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">TPCHCatalog</span>
+<h3 id="generate-an-api-configuration">Generate an API configuration<a class="headerlink" href="#generate-an-api-configuration" title="Permanent link">&para;</a></h3>
+<p>The ROAPI exporter includes supported storage-backed tables. Here it exports
+<code>parts_and_suppliers</code>; the Python-backed <code>suppliers</code> table is omitted. JSON is
+also valid YAML, so the standard library can write the configuration:</p>
+<!-- local-catalog-roapi -->
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="c1"># Generate ROAPI config</span>
-<span class="n">roapi</span><span class="o">.</span><span class="n">generate_config</span><span class="p">(</span><span class="n">TPCHCatalog</span><span class="p">,</span> <span class="n">output_file</span><span class="o">=</span><span class="s2">"roapi-config.yaml"</span><span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.export.roapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_roapi_tables</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">local_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalCatalog</span>
+
+<span class="n">Path</span><span class="p">(</span><span class="s2">"roapi-config.yaml"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span>
+    <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">"tables"</span><span class="p">:</span> <span class="n">export_to_roapi_tables</span><span class="p">(</span><span class="n">LocalCatalog</span><span class="p">)},</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="p">)</span>
 </code></pre></div>
+<p>The generated configuration references the local Parquet file; keep that file
+available when running <a href="https://github.com/roapi/roapi">ROAPI</a>. For larger
+catalogs, see <a href="examples/tpc_catalog.py">the example catalog</a> and
+<a href="examples/generate_tpc_site.py">the site generation example</a>.</p>
 <h2 id="about-neuralink">About Neuralink<a class="headerlink" href="#about-neuralink" title="Permanent link">&para;</a></h2>
 <p><code>datarepo</code> is part of Neuralink's commitment to the open source community. By maintaining free and open source software, we aim to accelerate data engineering and biotechnology.</p>
 <p>Neuralink is creating a generalized brain interface to restore autonomy to those with unmet medical needs today, and to unlock human potential tomorrow.</p>
