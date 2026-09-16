@@ -418,6 +418,16 @@ class TestDeltalakeTable:
         assert table.at_version("v1").uri == "s3://bucket/neural/signals/v1"
         assert table.at_version("v1").schema.equals(v1_schema)
 
+        slashed = DeltalakeTable(
+            name="signals",
+            uri="s3://bucket/neural/signals/",
+            schema=v2_schema,
+            schema_versions={"v1": v1_schema, "v2": v2_schema},
+            default_schema_version="v2",
+        )
+        assert slashed.uri == "s3://bucket/neural/signals/v2"
+        assert slashed.at_version("v1").uri == "s3://bucket/neural/signals/v1"
+
     def test_versioned_schema_reads(
         self,
         tmp_path: Path,
@@ -502,6 +512,83 @@ class TestDeltalakeTable:
         )
         with pytest.raises(KeyError, match="v9"):
             table.at_version("v9")
+
+    def test_schema_versions_requires_default_schema_version(self):
+        schema = pa.schema([("id", pa.int64())])
+        with pytest.raises(ValueError, match="default_schema_version is required"):
+            DeltalakeTable(
+                name="t",
+                uri="/tmp/t",
+                schema=schema,
+                schema_versions={"v1": schema},
+            )
+
+    def test_default_schema_version_must_be_a_known_key(self):
+        schema = pa.schema([("id", pa.int64())])
+        with pytest.raises(ValueError, match="not in"):
+            DeltalakeTable(
+                name="t",
+                uri="/tmp/t",
+                schema=schema,
+                schema_versions={"v1": schema},
+                default_schema_version="v2",
+            )
+
+    def test_default_schema_version_requires_schema_versions(self):
+        schema = pa.schema([("id", pa.int64())])
+        with pytest.raises(ValueError, match="requires schema_versions"):
+            DeltalakeTable(
+                name="t",
+                uri="/tmp/t",
+                schema=schema,
+                default_schema_version="v1",
+            )
+
+    def test_call_delta_version_time_travel(self, tmp_path: Path):
+        path = tmp_path / "tt"
+        schema = pa.schema(
+            [
+                ("implant_id", pa.int64()),
+                ("date", pa.string()),
+                ("uniq", pa.string()),
+                ("value", pa.int64()),
+            ]
+        )
+        dt = DeltaTable.create(
+            table_uri=str(path),
+            schema=schema,
+            partition_by=["implant_id", "date"],
+        )
+        first = pl.DataFrame(
+            {
+                "implant_id": [5956],
+                "date": ["2024-01-01"],
+                "uniq": ["1"],
+                "value": [10],
+            }
+        )
+        write_deltalake(dt, data=first.to_arrow(), mode="overwrite")
+        first_version = DeltaTable(str(path)).version()
+        second = pl.DataFrame(
+            {
+                "implant_id": [5956],
+                "date": ["2024-01-01"],
+                "uniq": ["1"],
+                "value": [20],
+            }
+        )
+        write_deltalake(dt, data=second.to_arrow(), mode="overwrite")
+
+        table = DeltalakeTable(
+            name="t",
+            uri=str(path),
+            schema=schema,
+            unique_columns=["uniq"],
+        )
+        old = table(delta_version=first_version).collect()
+        latest = table().collect()
+        assert old["value"].to_list() == [10]
+        assert latest["value"].to_list() == [20]
 
     """ this test is commented out until we upstream delta caching
     def test_delta_cache(

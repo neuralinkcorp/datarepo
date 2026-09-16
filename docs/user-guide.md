@@ -47,7 +47,7 @@ part = DeltalakeTable(
 ```
 
 #### Schema versioning
-When schema or business logic evolves, older data may remain at versioned URIs (for example `s3://my-bucket/tpc-h/part/v1`). Use `schema_versions` to bind each version label to a PyArrow schema and resolve reads to `{uri}/{version}`:
+When schema or business logic evolves, older data may remain at versioned URIs (for example `s3://my-bucket/tpc-h/part/v1`). Use `schema_versions` to bind each version label to a PyArrow schema and resolve reads to `{uri}/{version}`. `default_schema_version` is required when `schema_versions` is set:
 
 ```python
 v1_schema = pa.schema([

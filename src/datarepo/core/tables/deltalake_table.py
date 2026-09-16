@@ -124,9 +124,8 @@ class DeltalakeTable(TableProtocol):
                 version labels (e.g. ``"v1"``, ``"v2"``) to schemas for tables stored
                 at versioned URIs. Defaults to None.
             default_schema_version (str | None, optional): version label from
-                ``schema_versions`` used for the default read URI and schema. When
-                ``schema_versions`` is set and this is omitted, the key whose schema
-                equals ``schema`` is used. Defaults to None.
+                ``schema_versions`` used for the default read URI and schema.
+                Required when ``schema_versions`` is set. Defaults to None.
         """
         self.name = name
         self._base_uri = uri
@@ -138,21 +137,16 @@ class DeltalakeTable(TableProtocol):
         self._schema_version: str | None = None
 
         if schema_versions:
-            if default_schema_version is not None:
-                if default_schema_version not in schema_versions:
-                    raise ValueError(
-                        f"default_schema_version {default_schema_version!r} is not in "
-                        f"schema_versions keys: {sorted(schema_versions)}"
-                    )
-                self._schema_version = default_schema_version
-            else:
-                matched = _schema_version_for_schema(schema, schema_versions)
-                if matched is None:
-                    raise ValueError(
-                        "schema does not match any entry in schema_versions; "
-                        "pass default_schema_version explicitly"
-                    )
-                self._schema_version = matched
+            if default_schema_version is None:
+                raise ValueError(
+                    "default_schema_version is required when schema_versions is set"
+                )
+            if default_schema_version not in schema_versions:
+                raise ValueError(
+                    f"default_schema_version {default_schema_version!r} is not in "
+                    f"schema_versions keys: {sorted(schema_versions)}"
+                )
+            self._schema_version = default_schema_version
             self.schema = schema_versions[self._schema_version]
         else:
             if default_schema_version is not None:
@@ -557,15 +551,6 @@ def _normalize_df(
         .with_columns([pl.col(col).cast(dtype) for col, dtype in polars_schema.items()])
         .select(schema_columns)
     )
-
-
-def _schema_version_for_schema(
-    schema: pa.Schema, schema_versions: dict[str, pa.Schema]
-) -> str | None:
-    for version, version_schema in schema_versions.items():
-        if version_schema.equals(schema):
-            return version
-    return None
 
 
 def datafusion_predicate_from_filters(
