@@ -431,6 +431,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#schema-versioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema versioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#parquet-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -648,6 +659,37 @@
     <span class="p">},</span>
 <span class="p">)</span>
 </code></pre></div>
+<h4 id="schema-versioning">Schema versioning<a class="headerlink" href="#schema-versioning" title="Permanent link">&para;</a></h4>
+<p>When schema or business logic evolves, older data may remain at versioned URIs (for example <code>s3://my-bucket/tpc-h/part/v1</code>). Use <code>schema_versions</code> to bind each version label to a PyArrow schema and resolve reads to <code>{uri}/{version}</code>. <code>default_schema_version</code> is required when <code>schema_versions</code> is set:</p>
+<div class="highlight"><pre><span></span><code><span class="n">v1_schema</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">"p_partkey"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
+    <span class="p">(</span><span class="s2">"p_name"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+    <span class="p">(</span><span class="s2">"p_size"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int32</span><span class="p">()),</span>
+<span class="p">])</span>
+
+<span class="n">v2_schema</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">([</span>
+    <span class="p">(</span><span class="s2">"p_partkey"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
+    <span class="p">(</span><span class="s2">"p_name"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+    <span class="p">(</span><span class="s2">"p_size"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int32</span><span class="p">()),</span>
+    <span class="p">(</span><span class="s2">"p_comment"</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+<span class="p">])</span>
+
+<span class="n">part</span> <span class="o">=</span> <span class="n">DeltalakeTable</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"part"</span><span class="p">,</span>
+    <span class="n">uri</span><span class="o">=</span><span class="s2">"s3://my-bucket/tpc-h/part"</span><span class="p">,</span>
+    <span class="n">schema</span><span class="o">=</span><span class="n">v2_schema</span><span class="p">,</span>
+    <span class="n">schema_versions</span><span class="o">=</span><span class="p">{</span><span class="s2">"v1"</span><span class="p">:</span> <span class="n">v1_schema</span><span class="p">,</span> <span class="s2">"v2"</span><span class="p">:</span> <span class="n">v2_schema</span><span class="p">},</span>
+    <span class="n">default_schema_version</span><span class="o">=</span><span class="s2">"v2"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Latest schema (v2) from s3://my-bucket/tpc-h/part/v2</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">df_v2</span> <span class="o">=</span> <span class="n">part</span><span class="p">()</span>
+
+<span class="c1"># Prior schema (v1) from s3://my-bucket/tpc-h/part/v1</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">df_v1</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">at_version</span><span class="p">(</span><span class="s2">"v1"</span><span class="p">)()</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">df_v1_inline</span> <span class="o">=</span> <span class="n">part</span><span class="p">(</span><span class="n">schema_version</span><span class="o">=</span><span class="s2">"v1"</span><span class="p">)</span>
+</code></pre></div>
+<p>Existing tables without <code>schema_versions</code> behave exactly as before.</p>
 <h4 id="parquet-tables">Parquet tables<a class="headerlink" href="#parquet-tables" title="Permanent link">&para;</a></h4>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParquetTable</span><span class="p">,</span> <span class="n">Partition</span><span class="p">,</span> <span class="n">PartitioningScheme</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
