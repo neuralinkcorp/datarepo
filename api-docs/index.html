@@ -3088,7 +3088,28 @@
 <span class="normal">353</span>
 <span class="normal">354</span>
 <span class="normal">355</span>
-<span class="normal">356</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ClickHouseTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
+<span class="normal">356</span>
+<span class="normal">357</span>
+<span class="normal">358</span>
+<span class="normal">359</span>
+<span class="normal">360</span>
+<span class="normal">361</span>
+<span class="normal">362</span>
+<span class="normal">363</span>
+<span class="normal">364</span>
+<span class="normal">365</span>
+<span class="normal">366</span>
+<span class="normal">367</span>
+<span class="normal">368</span>
+<span class="normal">369</span>
+<span class="normal">370</span>
+<span class="normal">371</span>
+<span class="normal">372</span>
+<span class="normal">373</span>
+<span class="normal">374</span>
+<span class="normal">375</span>
+<span class="normal">376</span>
+<span class="normal">377</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ClickHouseTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""A table implementation that reads data from ClickHouse."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
@@ -3325,11 +3346,32 @@
 
 <span class="sd">        Raises:</span>
 <span class="sd">            ValueError: If a filter uses an unsupported operator, before creating</span>
-<span class="sd">                a backend client or executing a query.</span>
+<span class="sd">                a backend client or executing a query, or if a configured unique</span>
+<span class="sd">                column is missing from the declared schema. Key validation is</span>
+<span class="sd">                deferred until a read; constructing a table does not connect.</span>
 <span class="sd">        """</span>
         <span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span>
 
-        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+        <span class="n">query_columns</span> <span class="o">=</span> <span class="n">columns</span>
+        <span class="n">output_columns</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">:</span>
+            <span class="n">missing_keys</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">names</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">missing_keys</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"Unique columns missing from table schema: </span><span class="si">{</span><span class="n">missing_keys</span><span class="si">}</span><span class="s2">"</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
+                <span class="n">output_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">output_columns</span><span class="p">:</span>
+                    <span class="c1"># Transport the complete identity, even for a partial public</span>
+                    <span class="c1"># projection. Preserve the all-invalid '*' fallback below.</span>
+                    <span class="n">query_columns</span> <span class="o">=</span> <span class="n">output_columns</span> <span class="o">+</span> <span class="p">[</span>
+                        <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">output_columns</span>
+                    <span class="p">]</span>
+
+        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">query_columns</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
 
         <span class="n">client</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_client</span><span class="p">()</span>
         <span class="n">arrow_result</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">query_arrow</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
@@ -3338,9 +3380,9 @@
             <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">:</span>
-            <span class="n">available_unique_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
-            <span class="k">if</span> <span class="n">available_unique_cols</span><span class="p">:</span>
-                <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">struct</span><span class="p">(</span><span class="n">available_unique_cols</span><span class="p">)</span><span class="o">.</span><span class="n">is_last_distinct</span><span class="p">())</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">struct</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">)</span><span class="o">.</span><span class="n">is_last_distinct</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">output_columns</span><span class="p">:</span>
+                <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">output_columns</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
@@ -3505,7 +3547,9 @@
             <td>
               <div class="doc-md-description">
                 <p>If a filter uses an unsupported operator, before creating
-a backend client or executing a query.</p>
+a backend client or executing a query, or if a configured unique
+column is missing from the declared schema. Key validation is
+deferred until a read; constructing a table does not connect.</p>
               </div>
             </td>
           </tr>
@@ -3560,7 +3604,28 @@ a backend client or executing a query.</p>
 <span class="normal">353</span>
 <span class="normal">354</span>
 <span class="normal">355</span>
-<span class="normal">356</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
+<span class="normal">356</span>
+<span class="normal">357</span>
+<span class="normal">358</span>
+<span class="normal">359</span>
+<span class="normal">360</span>
+<span class="normal">361</span>
+<span class="normal">362</span>
+<span class="normal">363</span>
+<span class="normal">364</span>
+<span class="normal">365</span>
+<span class="normal">366</span>
+<span class="normal">367</span>
+<span class="normal">368</span>
+<span class="normal">369</span>
+<span class="normal">370</span>
+<span class="normal">371</span>
+<span class="normal">372</span>
+<span class="normal">373</span>
+<span class="normal">374</span>
+<span class="normal">375</span>
+<span class="normal">376</span>
+<span class="normal">377</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>  <span class="c1"># type: ignore[override]</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">filters</span><span class="p">:</span> <span class="n">InputFilters</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">columns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3588,11 +3653,32 @@ a backend client or executing a query.</p>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: If a filter uses an unsupported operator, before creating</span>
-<span class="sd">            a backend client or executing a query.</span>
+<span class="sd">            a backend client or executing a query, or if a configured unique</span>
+<span class="sd">            column is missing from the declared schema. Key validation is</span>
+<span class="sd">            deferred until a read; constructing a table does not connect.</span>
 <span class="sd">    """</span>
     <span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span>
 
-    <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
+    <span class="n">query_columns</span> <span class="o">=</span> <span class="n">columns</span>
+    <span class="n">output_columns</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">:</span>
+        <span class="n">missing_keys</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">names</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="n">missing_keys</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"Unique columns missing from table schema: </span><span class="si">{</span><span class="n">missing_keys</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
+            <span class="n">output_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">schema</span><span class="o">.</span><span class="n">names</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">output_columns</span><span class="p">:</span>
+                <span class="c1"># Transport the complete identity, even for a partial public</span>
+                <span class="c1"># projection. Preserve the all-invalid '*' fallback below.</span>
+                <span class="n">query_columns</span> <span class="o">=</span> <span class="n">output_columns</span> <span class="o">+</span> <span class="p">[</span>
+                    <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">output_columns</span>
+                <span class="p">]</span>
+
+    <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_build_query</span><span class="p">(</span><span class="n">filters</span><span class="p">,</span> <span class="n">query_columns</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
 
     <span class="n">client</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get_client</span><span class="p">()</span>
     <span class="n">arrow_result</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">query_arrow</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
@@ -3601,9 +3687,9 @@ a backend client or executing a query.</p>
         <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">to_frame</span><span class="p">()</span>
 
     <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">:</span>
-        <span class="n">available_unique_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
-        <span class="k">if</span> <span class="n">available_unique_cols</span><span class="p">:</span>
-            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">struct</span><span class="p">(</span><span class="n">available_unique_cols</span><span class="p">)</span><span class="o">.</span><span class="n">is_last_distinct</span><span class="p">())</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">struct</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">unique_columns</span><span class="p">)</span><span class="o">.</span><span class="n">is_last_distinct</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">output_columns</span><span class="p">:</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">output_columns</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
@@ -6643,7 +6729,14 @@ from delta-backed to native tables). Falls back to <code>name</code> if not set.
 <span class="normal">432</span>
 <span class="normal">433</span>
 <span class="normal">434</span>
-<span class="normal">435</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ParquetTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
+<span class="normal">435</span>
+<span class="normal">436</span>
+<span class="normal">437</span>
+<span class="normal">438</span>
+<span class="normal">439</span>
+<span class="normal">440</span>
+<span class="normal">441</span>
+<span class="normal">442</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ParquetTable</span><span class="p">(</span><span class="n">TableProtocol</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""A table that is stored in Parquet format."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
@@ -6921,6 +7014,13 @@ from delta-backed to native tables). Falls back to <code>name</code> if not set.
                 <span class="n">filter_set</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">partition_filter</span><span class="p">)</span>
 
             <span class="n">applied_filters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">partition_filter</span><span class="p">)</span>
+
+            <span class="c1"># An emptied branch is true within the selected partition. Keeping</span>
+            <span class="c1"># the other OR branches would incorrectly restrict its rows, and</span>
+            <span class="c1"># their predicates cannot justify pruning any deeper partitions.</span>
+            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="ow">not</span> <span class="n">filter_set</span> <span class="k">for</span> <span class="n">filter_set</span> <span class="ow">in</span> <span class="n">filters</span><span class="p">):</span>
+                <span class="n">filters</span> <span class="o">=</span> <span class="p">[[]]</span>
+                <span class="k">break</span>
 
         <span class="n">uri</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
             <span class="n">uri</span><span class="p">,</span> <span class="s2">""</span>
