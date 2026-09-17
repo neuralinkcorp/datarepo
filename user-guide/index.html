@@ -547,6 +547,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#partition-batching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Partition batching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#custom-columns" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -834,6 +845,21 @@
 
 <span class="c1"># Use caching</span>
 <span class="o">&gt;&gt;&gt;</span> <span class="n">df</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">supplier</span><span class="p">(</span><span class="n">cache_options</span><span class="o">=</span><span class="n">cache_options</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="partition-batching">Partition batching<a class="headerlink" href="#partition-batching" title="Permanent link">&para;</a></h3>
+<p>For partitions with very large file counts, <code>fetch_df_by_partition</code> can process files in batches to reduce peak memory. Default is off for backward compatibility:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datarepo.core.tables.deltalake_table</span><span class="w"> </span><span class="kn">import</span> <span class="n">fetch_df_by_partition</span>
+
+<span class="n">df</span> <span class="o">=</span> <span class="n">fetch_df_by_partition</span><span class="p">(</span>
+    <span class="n">dt</span><span class="o">=</span><span class="n">delta_table</span><span class="p">,</span>
+    <span class="n">partition</span><span class="o">=</span><span class="p">[(</span><span class="s2">"implant_id"</span><span class="p">,</span> <span class="s2">"="</span><span class="p">,</span> <span class="mi">5956</span><span class="p">),</span> <span class="p">(</span><span class="s2">"date"</span><span class="p">,</span> <span class="s2">"="</span><span class="p">,</span> <span class="s2">"2024-04-05"</span><span class="p">)],</span>
+    <span class="n">schema</span><span class="o">=</span><span class="n">table_schema</span><span class="p">,</span>
+    <span class="n">use_batching</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Run the synthetic memory benchmark locally:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">PYTHONPATH</span><span class="o">=</span>src<span class="w"> </span>python<span class="w"> </span>scripts/benchmark_partition_batching.py<span class="w"> </span>--file-count<span class="w"> </span><span class="m">80</span>
 </code></pre></div>
 <h3 id="custom-columns">Custom columns<a class="headerlink" href="#custom-columns" title="Permanent link">&para;</a></h3>
 <p>You can add custom computed columns to tables:</p>
