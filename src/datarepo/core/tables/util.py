@@ -76,7 +76,7 @@ def get_storage_options(
     Returns:
         dict[str, str]: Storage options for Delta Lake or other S3-compatible storage.
     """
-    storage_options = {}
+    storage_options: dict[str, str | None] = {}
 
     if endpoint_url is not None:
         storage_options["aws_endpoint_url"] = endpoint_url
@@ -96,11 +96,12 @@ def get_storage_options(
                 # Skip session-load errors (missing profile, unreadable config, etc.)
                 pass
         if creds is not None:
+            frozen = creds.get_frozen_credentials()
             storage_options = {
                 **storage_options,
-                "aws_access_key_id": creds.access_key,
-                "aws_secret_access_key": creds.secret_key,
-                "aws_session_token": creds.token or "",
+                "aws_access_key_id": frozen.access_key,
+                "aws_secret_access_key": frozen.secret_key,
+                "aws_session_token": frozen.token or "",
                 "aws_region": boto3_session.region_name,
             }
         else:
@@ -112,9 +113,7 @@ def get_storage_options(
         logger.error("Failed to create boto3 session automatically.")
 
     # Storage options passed to delta-rs need to be not null
-    storage_options = {k: v for k, v in storage_options.items() if v}
-
-    return storage_options
+    return {k: v for k, v in storage_options.items() if v}
 
 
 def get_pyarrow_filesystem_args(
@@ -130,7 +129,7 @@ def get_pyarrow_filesystem_args(
     Returns:
         dict[str, str]: Arguments for the PyArrow filesystem.
     """
-    pyarrow_filesystem_args = {}
+    pyarrow_filesystem_args: dict[str, str | None] = {}
 
     if endpoint_url is not None:
         pyarrow_filesystem_args["endpoint_override"] = endpoint_url
@@ -138,11 +137,12 @@ def get_pyarrow_filesystem_args(
     if boto3_session is not None:
         creds = boto3_session.get_credentials()
         if creds is not None:
+            frozen = creds.get_frozen_credentials()
             pyarrow_filesystem_args = {
                 **pyarrow_filesystem_args,
-                "access_key": creds.access_key,
-                "secret_key": creds.secret_key,
-                "session_token": creds.token or "",
+                "access_key": frozen.access_key,
+                "secret_key": frozen.secret_key,
+                "session_token": frozen.token or "",
                 "region": boto3_session.region_name,
             }
         else:
@@ -151,11 +151,7 @@ def get_pyarrow_filesystem_args(
                 "Storage options will not include AWS credentials."
             )
 
-    pyarrow_filesystem_args = {
-        k: v for k, v in pyarrow_filesystem_args.items() if v is not None
-    }
-
-    return pyarrow_filesystem_args
+    return {k: v for k, v in pyarrow_filesystem_args.items() if v is not None}
 
 
 def filters_to_sql_predicate(schema: pa.Schema, filters: NormalizedFilters) -> str:
