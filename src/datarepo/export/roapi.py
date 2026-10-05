@@ -196,10 +196,22 @@ def _with_reload_interval(
 
 
 def py_type_to_roapi(py_type: type) -> str:
-    """Maps Python types to Roapi data types."""
-    return {
+    """Maps Python types to Roapi data types.
+
+    Raises:
+        ValueError: If the type has no known Roapi data type mapping. Without this,
+            callers get an opaque ``KeyError: <class '...'>`` instead of a message
+            naming the unsupported partition value type.
+    """
+    roapi_types = {
         int: "Int64",
         str: "Utf8",
         bool: "Boolean",
         float: "Float64",
-    }[py_type]
+    }
+    if py_type not in roapi_types:
+        raise ValueError(
+            f"Unsupported partition column type {py_type!r} for ROAPI export. "
+            f"Supported types: {[t.__name__ for t in roapi_types]}"
+        )
+    return roapi_types[py_type]

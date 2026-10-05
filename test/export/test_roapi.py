@@ -1,10 +1,12 @@
+from datetime import date
+
 import pytest
 import pyarrow as pa
 
 from datarepo.core.tables.clickhouse_table import ClickHouseTable, ClickHouseTableConfig
 from datarepo.core.tables.parquet_table import ParquetTable
 from datarepo.core.tables.util import Filter, Partition, PartitioningScheme
-from datarepo.export.roapi import export_to_roapi_table
+from datarepo.export.roapi import export_to_roapi_table, py_type_to_roapi
 
 
 class TestRoapiExport:
@@ -77,3 +79,28 @@ class TestRoapiExport:
         exported = export_to_roapi_table("test_clickhouse_table", clickhouse_table)
 
         assert exported is None
+
+    def test_roapi_export_unsupported_partition_type_raises_clear_error(self):
+        """A partition value type with no Roapi mapping should raise a clear
+        ValueError naming the type, instead of an opaque KeyError."""
+        table = ParquetTable(
+            name="test_parquet_table",
+            uri="s3://test-bucket/data/",
+            partitioning=[Partition(column="created_on", col_type=pa.date32())],
+            partitioning_scheme=PartitioningScheme.HIVE,
+            docs_filters=[Filter("created_on", "=", date(2024, 10, 29))],
+        )
+
+        with pytest.raises(ValueError, match="Unsupported partition column type"):
+            export_to_roapi_table("test_table", table)
+
+    @pytest.mark.parametrize(
+        ("py_type", "expected"),
+        [(int, "Int64"), (str, "Utf8"), (bool, "Boolean"), (float, "Float64")],
+    )
+    def test_py_type_to_roapi_supported_types(self, py_type: type, expected: str):
+        assert py_type_to_roapi(py_type) == expected
+
+    def test_py_type_to_roapi_unsupported_type_raises(self):
+        with pytest.raises(ValueError, match="Unsupported partition column type"):
+            py_type_to_roapi(date)
