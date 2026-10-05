@@ -2,7 +2,9 @@ export interface ExportedTablePartition {
   column_name: string
   operator?: string
   type_annotation: string | null
-  value: string | number | null
+  // 'in' / 'not in' filters carry a list value (e.g. Filter("id", "in", [1, 2])); every
+  // other operator carries a scalar.
+  value: string | number | null | (string | number)[]
 }
 
 export interface ExportedTableColumn {
