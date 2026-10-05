@@ -121,6 +121,36 @@ class TestParquetTable:
         )
 
     @pytest.mark.parametrize(
+        ("operator", "expected_implant_ids"),
+        [
+            ("is null", [2]),
+            ("is not null", [1, 3]),
+        ],
+    )
+    def test_read_is_null(
+        self,
+        tmp_path: Path,
+        operator: str,
+        expected_implant_ids: list[int],
+    ):
+        table_dir = tmp_path / "nullable"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table_path = table_dir / "test.parquet"
+
+        pl.DataFrame(
+            {
+                "implant_id": [1, 2, 3],
+                "value": [10, None, 30],
+            }
+        ).write_parquet(table_path)
+
+        table = ParquetTable(name="nullable", uri=str(table_path), partitioning=[])
+
+        result = table(filters=[Filter("value", operator, None)]).collect()
+
+        assert sorted(result["implant_id"].to_list()) == expected_implant_ids
+
+    @pytest.mark.parametrize(
         (
             "filters",
             "expected",
