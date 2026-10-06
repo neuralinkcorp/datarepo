@@ -47,7 +47,7 @@ def generate_code(tmp_path_factory):
         text=True,
     )
 
-    def generate(catalog, sql=False):
+    def generate(catalog, sql=False, js_number=None):
         # Use the same JSON boundary as export_and_generate_site/data.json.
         exported = web.export_datarepo([("SampleCatalog", catalog)])["catalogs"][0]
         database = exported["databases"][0]
@@ -63,8 +63,11 @@ def generate_code(tmp_path_factory):
                 "-e",
                 "const fs = require('node:fs');"
                 "const {genTableCode} = require(process.argv[1]);"
-                "process.stdout.write(genTableCode(JSON.parse(fs.readFileSync(0, 'utf8'))));",
+                "const payload = JSON.parse(fs.readFileSync(0, 'utf8'));"
+                "if (process.argv[2]) payload.table.partitions[0].value = Number(process.argv[2]);"
+                "process.stdout.write(genTableCode(payload));",
                 str(output / "codegen.js"),
+                *([js_number] if js_number is not None else []),
             ],
             input=json.dumps(payload),
             capture_output=True,
@@ -191,16 +194,46 @@ def test_unary_filter_ignores_value(generate_code, monkeypatch, operator):
     assert args[1] == (Filter("value", operator, None),)
 
 
-def test_unsupported_object_is_not_silently_stringified(generate_code):
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"unexpected": 1},
+        [{"unexpected": 1}],
+        [1, [{"unexpected": 1}]],
+        [[], {"unexpected": 1}, None],
+    ],
+)
+def test_unsupported_filter_value_shows_placeholder(generate_code, value):
     table = DeltalakeTable(
         name="rows",
         uri="unused",
-        schema=pa.schema([("value", pa.string())]),
-        docs_filters=[Filter("value", "=", {"unexpected": 1})],
+        schema=pa.schema(
+            [("before", pa.string()), ("value", pa.string()), ("after", pa.string())]
+        ),
+        docs_filters=[
+            Filter("before", "=", "supported"),
+            Filter("value", "in", value),
+            Filter("after", "!=", "other"),
+        ],
     )
-    with pytest.raises(subprocess.CalledProcessError) as exc:
-        generate_code(make_catalog(table))
-    assert "Cannot generate a Python literal for this filter value" in exc.value.stderr
+    code = generate_code(make_catalog(table))
+    assert code == "# cannot render this filter value"
+    namespace = {}
+    exec(code, namespace)
+    assert "df" not in namespace
+
+
+@pytest.mark.parametrize("js_number", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_filter_value_shows_placeholder(generate_code, js_number):
+    table = DeltalakeTable(
+        name="rows",
+        uri="unused",
+        schema=pa.schema([("value", pa.float64())]),
+        docs_filters=[Filter("value", "=", 0.0)],
+    )
+    assert generate_code(make_catalog(table), js_number=js_number) == (
+        "# cannot render this filter value"
+    )
 
 
 def test_names_order_and_selected_columns(generate_code, monkeypatch):
