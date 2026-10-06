@@ -7,11 +7,14 @@ never checks out or executes pull-request code.
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
+import random
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,7 +34,10 @@ MAX_DIFF_CHARS = 200_000
 MAX_INLINE_COMMENTS = 8
 MAX_COMMENT_CHARS = 8_000
 MAX_PREVIOUS_COMMENTS = 30
-MODEL_TIMEOUT_SECONDS = 15 * 60
+MODEL_TIMEOUT_SECONDS = 8 * 60
+MODEL_BUDGET_SECONDS = 12 * 60
+MAX_RETRY_ATTEMPTS = 3
+MAX_RETRY_DELAY_SECONDS = 60
 REVIEW_EVENT = "COMMENT"
 FOOTER = (
     "*Posted by the code review bot. This is an automated review, "
@@ -99,6 +105,31 @@ class GitHubError(RuntimeError):
         self.body = body
 
 
+class TransportError(RuntimeError):
+    pass
+
+
+class RequestError(RuntimeError):
+    pass
+
+
+class ModelRequestError(RequestError):
+    pass
+
+
+class AmbiguousPostError(RequestError):
+    pass
+
+
+TRANSPORT_EXCEPTIONS = (
+    urllib.error.URLError,
+    TimeoutError,
+    ConnectionError,
+    OSError,
+    http.client.HTTPException,
+)
+
+
 def http_json(
     url: str,
     *,
@@ -106,13 +137,17 @@ def http_json(
     headers: dict[str, str] | None = None,
     payload: Any = None,
     timeout: int = 30,
+    operation: str = "HTTP request",
 ) -> tuple[int, Any, dict[str, str]]:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
-            parsed = json.loads(raw.decode("utf-8")) if raw else None
+            try:
+                parsed = json.loads(raw.decode("utf-8")) if raw else None
+            except json.JSONDecodeError as exc:
+                raise TransportError(f"{operation} returned invalid JSON") from exc
             return resp.status, parsed, {k: v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as exc:
         raw = exc.read()
@@ -121,6 +156,86 @@ def http_json(
         except json.JSONDecodeError:
             parsed = {"message": raw.decode("utf-8", errors="replace")}
         return exc.code, parsed, {k: v for k, v in exc.headers.items()}
+    except TRANSPORT_EXCEPTIONS as exc:
+        raise TransportError(
+            f"{operation} transport request failed: {describe_exception(exc)}"
+        ) from exc
+
+
+def describe_exception(exc: BaseException) -> str:
+    detail = str(exc)
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+def is_transient_status(status: int) -> bool:
+    return status in {429, 500, 502, 503, 504}
+
+
+def retry_after_seconds(headers: Mapping[str, str]) -> float | None:
+    for key, value in headers.items():
+        if key.lower() != "retry-after":
+            continue
+        try:
+            return max(0, float(value))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def request_with_retries(
+    request: Callable[[], tuple[int, Any, dict[str, str]]],
+    *,
+    operation: str,
+    attempts: int = MAX_RETRY_ATTEMPTS,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    jitter: Callable[[float, float], float] = random.uniform,
+    deadline: float | None = None,
+    retry_transport: bool = True,
+    error_type: type[RequestError] = RequestError,
+) -> tuple[int, Any, dict[str, str]]:
+    for attempt in range(1, attempts + 1):
+        headers: dict[str, str] = {}
+        if deadline is not None and clock() >= deadline:
+            raise ModelRequestError(f"{operation} budget exhausted")
+        try:
+            status, body, headers = request()
+        except (TransportError, *TRANSPORT_EXCEPTIONS) as exc:
+            if not retry_transport or attempt == attempts:
+                raise error_type(
+                    f"{operation} failed after {attempt} attempts: "
+                    f"{describe_exception(exc)}"
+                ) from exc
+            reason = describe_exception(exc)
+        else:
+            if not is_transient_status(status):
+                return status, body, headers
+            if attempt == attempts:
+                raise error_type(
+                    f"{operation} failed after {attempt} attempts: HTTP {status}"
+                )
+            reason = f"HTTP {status}"
+
+        delay = retry_after_seconds(headers)
+        if delay is None:
+            delay = min(MAX_RETRY_DELAY_SECONDS, 2 ** (attempt - 1))
+            delay += jitter(0, 1)
+        delay = min(delay, MAX_RETRY_DELAY_SECONDS)
+        if deadline is not None:
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise ModelRequestError(f"{operation} budget exhausted")
+            delay = min(delay, remaining)
+        LOGGER.warning(
+            "%s retry attempt %s/%s: %s; sleeping %.1f seconds",
+            operation,
+            attempt + 1,
+            attempts,
+            reason,
+            delay,
+        )
+        sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def parse_next_link(link_header: str | None) -> str | None:
@@ -142,11 +257,20 @@ def normalize_login(login: str) -> str:
 
 class GitHubClient:
     def __init__(
-        self, token: str, repo: str, requester: Callable[..., Any] | None = None
+        self,
+        token: str,
+        repo: str,
+        requester: Callable[..., Any] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        jitter: Callable[[float, float], float] = random.uniform,
     ):
         self.token = token
         self.repo = repo
         self._requester = requester or http_json
+        self._sleep = sleep
+        self._clock = clock
+        self._jitter = jitter
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -174,12 +298,40 @@ class GitHubClient:
         headers = self._headers()
         if payload is not None:
             headers["Content-Type"] = "application/json"
-        return self._requester(
-            url, method=method, headers=headers, payload=payload, timeout=timeout
+        kwargs: dict[str, Any] = {
+            "method": method,
+            "headers": headers,
+            "payload": payload,
+            "timeout": timeout,
+        }
+        if self._requester is http_json:
+            kwargs["operation"] = f"GitHub {method} {path.split('?', 1)[0]}"
+        return self._requester(url, **kwargs)
+
+    def _request_with_retries(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        payload: Any = None,
+        timeout: int = 30,
+        attempts: int = MAX_RETRY_ATTEMPTS,
+    ) -> tuple[int, Any, dict[str, str]]:
+        operation = f"GitHub {method} {path.split('?', 1)[0]}"
+        return request_with_retries(
+            lambda: self.request(
+                method, path, params=params, payload=payload, timeout=timeout
+            ),
+            operation=operation,
+            attempts=attempts,
+            sleep=self._sleep,
+            clock=self._clock,
+            jitter=self._jitter,
         )
 
     def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        status, body, _ = self.request("GET", path, params=params)
+        status, body, _ = self._request_with_retries("GET", path, params=params)
         if status >= 400:
             raise GitHubError(status, path, body)
         return body
@@ -191,7 +343,9 @@ class GitHubClient:
         next_path: str | None = path
         next_params: dict[str, Any] | None = query
         while next_path:
-            status, body, headers = self.request("GET", next_path, params=next_params)
+            status, body, headers = self._request_with_retries(
+                "GET", next_path, params=next_params
+            )
             if status >= 400:
                 raise GitHubError(status, next_path, body)
             if not isinstance(body, list):
@@ -203,15 +357,48 @@ class GitHubClient:
         return items
 
     def post_json(self, path: str, payload: Any) -> tuple[int, Any]:
-        status, body, _ = self.request("POST", path, payload=payload, timeout=60)
-        return status, body
+        operation = f"GitHub POST {path.split('?', 1)[0]}"
+        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+            try:
+                status, body, headers = self.request(
+                    "POST", path, payload=payload, timeout=60
+                )
+            except (TransportError, *TRANSPORT_EXCEPTIONS) as exc:
+                raise AmbiguousPostError(
+                    f"{operation} failed after {attempt} attempts: "
+                    f"{describe_exception(exc)}"
+                ) from exc
+            if not is_transient_status(status) or attempt == MAX_RETRY_ATTEMPTS:
+                return status, body
+            delay = retry_after_seconds(headers)
+            if delay is None:
+                delay = min(MAX_RETRY_DELAY_SECONDS, 2 ** (attempt - 1))
+                delay += self._jitter(0, 1)
+            delay = min(delay, MAX_RETRY_DELAY_SECONDS)
+            LOGGER.warning(
+                "%s retry attempt %s/%s: HTTP %s; sleeping %.1f seconds",
+                operation,
+                attempt + 1,
+                MAX_RETRY_ATTEMPTS,
+                status,
+                delay,
+            )
+            self._sleep(delay)
+        raise AssertionError("unreachable")
 
-    def graphql(self, query: str, variables: dict[str, Any] | None = None) -> Any:
-        status, body, _ = self.request(
+    def graphql(
+        self,
+        query: str,
+        variables: dict[str, Any] | None = None,
+        *,
+        attempts: int = 1,
+    ) -> Any:
+        status, body, _ = self._request_with_retries(
             "POST",
             "/graphql",
             payload={"query": query, "variables": variables or {}},
             timeout=60,
+            attempts=attempts,
         )
         if status >= 400:
             raise GitHubError(status, "/graphql", body)
@@ -236,6 +423,7 @@ class GitHubClient:
                     "number": number,
                     "cursor": cursor,
                 },
+                attempts=MAX_RETRY_ATTEMPTS,
             )
             conn = (
                 ((data or {}).get("repository") or {}).get("pullRequest") or {}
@@ -247,7 +435,7 @@ class GitHubClient:
                 if not comments:
                     continue
                 first = comments[0] or {}
-                author = ((first.get("author") or {}).get("login") or "")
+                author = (first.get("author") or {}).get("login") or ""
                 if normalize_login(author) != bot_norm:
                     continue
                 line = first.get("line")
@@ -272,7 +460,7 @@ class GitHubClient:
         return threads
 
     def resolve_review_thread(self, thread_id: str) -> None:
-        self.graphql(RESOLVE_MUTATION, {"id": thread_id})
+        self.graphql(RESOLVE_MUTATION, {"id": thread_id}, attempts=MAX_RETRY_ATTEMPTS)
 
 
 def right_side_lines(patch: str | None) -> set[int]:
@@ -613,6 +801,12 @@ def complete_chat(
     system: str,
     user: str,
     timeout: int = MODEL_TIMEOUT_SECONDS,
+    *,
+    requester: Callable[..., tuple[int, Any, dict[str, str]]] = http_json,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    jitter: Callable[[float, float], float] = random.uniform,
+    budget: int = MODEL_BUDGET_SECONDS,
 ) -> str:
     api_url = os.environ.get("MODEL_API_URL")
     if not api_url:
@@ -631,26 +825,43 @@ def complete_chat(
         "Content-Type": "application/json",
         "User-Agent": "code-review-bot",
     }
-    status, body, _ = http_json(
-        api_url,
-        method="POST",
-        headers=headers,
-        payload=payload,
-        timeout=timeout,
-    )
+    deadline = clock() + budget
+
+    def request_model(
+        request_payload: dict[str, Any],
+    ) -> tuple[int, Any, dict[str, str]]:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise ModelRequestError("model API request budget exhausted")
+        kwargs: dict[str, Any] = {
+            "method": "POST",
+            "headers": headers,
+            "payload": request_payload,
+            "timeout": min(timeout, remaining),
+        }
+        if requester is http_json:
+            kwargs["operation"] = "model API"
+        return requester(api_url, **kwargs)
+
+    def request_with_model_retries(
+        request_payload: dict[str, Any],
+    ) -> tuple[int, Any, dict[str, str]]:
+        return request_with_retries(
+            lambda: request_model(request_payload),
+            operation="model API request",
+            sleep=sleep,
+            clock=clock,
+            jitter=jitter,
+            deadline=deadline,
+            error_type=ModelRequestError,
+        )
+
+    status, body, _ = request_with_model_retries(payload)
+    if status >= 400 and "response_format" in str(body).lower():
+        payload.pop("response_format", None)
+        status, body, _ = request_with_model_retries(payload)
     if status >= 400:
-        message = str(body)
-        if "response_format" in message.lower():
-            payload.pop("response_format", None)
-            status, body, _ = http_json(
-                api_url,
-                method="POST",
-                headers=headers,
-                payload=payload,
-                timeout=timeout,
-            )
-        if status >= 400:
-            raise RuntimeError(f"model API error {status}: {body}")
+        raise ModelRequestError(f"model API request failed: HTTP {status}")
     choices = (body or {}).get("choices") or []
     if not choices:
         raise RuntimeError(f"model API returned no choices: {body}")
@@ -660,14 +871,40 @@ def complete_chat(
     return str(content)
 
 
-def post_review(github: GitHubClient, number: int, payload: dict[str, Any]) -> Any:
+def already_reviewed(
+    github: GitHubClient, number: int, bot_login: str, commit_id: str
+) -> bool:
+    reviews = github.get_all(f"/repos/{github.repo}/pulls/{number}/reviews")
+    bot_norm = normalize_login(bot_login)
+    return any(
+        normalize_login((review.get("user") or {}).get("login") or "") == bot_norm
+        and review.get("commit_id") == commit_id
+        for review in reviews
+    )
+
+
+def post_review(
+    github: GitHubClient,
+    number: int,
+    payload: dict[str, Any],
+    bot_login: str = "code-review-bot[bot]",
+) -> Any:
     path = f"/repos/{github.repo}/pulls/{number}/reviews"
-    status, body = github.post_json(path, payload)
+
+    def post(review_payload: dict[str, Any]) -> tuple[int, Any]:
+        try:
+            return github.post_json(path, review_payload)
+        except RequestError:
+            if already_reviewed(github, number, bot_login, review_payload["commit_id"]):
+                return 200, {"id": "existing"}
+            return github.post_json(path, review_payload)
+
+    status, body = post(payload)
     if status == 422 and payload.get("comments"):
         LOGGER.warning("inline comments rejected (%s); retrying summary only", body)
         retry = dict(payload)
         retry.pop("comments", None)
-        status, body = github.post_json(path, retry)
+        status, body = post(retry)
     if status >= 400:
         raise GitHubError(status, path, body)
     return body
@@ -737,7 +974,7 @@ def run(
     payload = build_review_payload(head_sha, summary, comments)
     if payload["event"] != REVIEW_EVENT:
         raise RuntimeError("refusing to post a review that is not COMMENT")
-    posted = post_review(github, number, payload)
+    posted = post_review(github, number, payload, bot_login)
     resolved_ok = 0
     for thread in to_resolve:
         try:
@@ -761,8 +998,11 @@ def main() -> int:
             raise RuntimeError("GITHUB_REPOSITORY is not set")
         github = GitHubClient(env.get("GITHUB_TOKEN") or "", repo)
         message = run(env, event, github, complete_chat)
+    except ModelRequestError as exc:
+        LOGGER.error("model phase failed: %s", exc)
+        return 1
     except Exception as exc:
-        LOGGER.error("%s", exc)
+        LOGGER.error("code review phase failed: %s", exc)
         return 1
     LOGGER.info("%s", message)
     return 0
