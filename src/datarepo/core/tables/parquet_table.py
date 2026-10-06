@@ -133,6 +133,10 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
         return pl.col(filter.column).is_in(filter.value)
     elif filter.operator == "not in":
         return ~pl.col(filter.column).is_in(filter.value)
+    elif filter.operator == "is null":
+        return pl.col(filter.column).is_null()
+    elif filter.operator == "is not null":
+        return pl.col(filter.column).is_not_null()
     elif filter.operator == "contains":
         return pl.col(filter.column).str.contains(filter.value)
     elif filter.operator == "includes":
