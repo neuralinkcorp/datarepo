@@ -1,7 +1,9 @@
 import http.client
 import importlib.util
+import io
 import json
 from pathlib import Path
+import urllib.error
 
 import pytest
 
@@ -500,6 +502,173 @@ def test_parse_next_link(reviewer):
 
 def model_response():
     return {"choices": [{"message": {"content": '{"summary": "ok"}'}}]}
+
+
+class FakeResponse:
+    def __init__(self, *, lines=(), raw=b"", headers=None, status=200):
+        self.lines = lines
+        self.raw = raw
+        self.headers = headers or {}
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def __iter__(self):
+        return iter(self.lines)
+
+    def read(self):
+        return self.raw
+
+
+def test_parse_chat_stream_joins_content_and_ignores_non_content_chunks(reviewer):
+    lines = [
+        b": keep-alive\n",
+        b"\n",
+        b'data: {"choices": [{"delta": {"role": "assistant"}}]}\n',
+        b'data:{"choices": [{"delta": {"reasoning_content": "think"}}]}\n',
+        b'data: {"choices": []}\n',
+        b'data: {"choices": [{"delta": {"content": "hello"}}]}\n',
+        b'data: {"choices": [{"delta": {"content": " world"}}]}\n',
+        b"data: [DONE]\n",
+    ]
+
+    assert reviewer.parse_chat_stream(lines) == "hello world"
+
+
+def test_parse_chat_stream_accepts_finish_reason_without_done(reviewer):
+    lines = [
+        b'data: {"choices": [{"delta": {"content": "ok"}, '
+        b'"finish_reason": "stop"}]}\n'
+    ]
+
+    assert reviewer.parse_chat_stream(lines) == "ok"
+
+
+def test_parse_chat_stream_rejects_incomplete_and_error_streams(reviewer):
+    with pytest.raises(reviewer.TransportError, match="before completion"):
+        reviewer.parse_chat_stream(
+            [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        )
+    with pytest.raises(reviewer.TransportError, match="returned an error"):
+        reviewer.parse_chat_stream([b'data: {"error": {"message": "bad"}}\n'])
+
+
+def test_http_stream_chat_reads_sse_response(reviewer):
+    response = FakeResponse(
+        lines=[
+            b'data: {"choices": [{"delta": {"content": "hello"}}]}\n',
+            b'data: {"choices": [{"delta": {"content": " world"}}]}\n',
+            b"data: [DONE]\n",
+        ],
+        headers={"Content-Type": "text/event-stream; charset=utf-8"},
+    )
+
+    status, body, headers = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: response,
+    )
+
+    assert status == 200
+    assert body == {"choices": [{"message": {"content": "hello world"}}]}
+    assert headers == {"Content-Type": "text/event-stream; charset=utf-8"}
+
+
+def test_http_stream_chat_accepts_plain_json_response(reviewer):
+    response = FakeResponse(
+        raw=json.dumps(model_response()).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+
+    status, body, _ = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: response,
+    )
+
+    assert status == 200
+    assert body == model_response()
+
+
+def test_http_stream_chat_returns_http_error_status(reviewer):
+    error = urllib.error.HTTPError(
+        "https://example.invalid", 503, "busy", {}, io.BytesIO(b'{"message": "busy"}')
+    )
+
+    status, body, headers = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: (_ for _ in ()).throw(error),
+    )
+
+    assert (status, body, headers) == (503, {"message": "busy"}, {})
+
+
+def test_http_stream_chat_wraps_mid_stream_disconnect(reviewer):
+    response = FakeResponse(
+        lines=(
+            line for line in [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    def broken_lines():
+        yield b'data: {"choices": [{"delta": {"content": "x"}}]}\n'
+        raise http.client.RemoteDisconnected("closed")
+
+    response.lines = broken_lines()
+    with pytest.raises(reviewer.TransportError, match="RemoteDisconnected"):
+        reviewer.http_stream_chat(
+            "https://example.invalid",
+            opener=lambda *args, **kwargs: response,
+        )
+
+
+def test_http_stream_chat_enforces_deadline_while_reading(reviewer):
+    response = FakeResponse(
+        lines=[b'data: {"choices": [{"delta": {"content": "x"}}]}\n'],
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    with pytest.raises(reviewer.ModelRequestError, match="budget exhausted"):
+        reviewer.http_stream_chat(
+            "https://example.invalid",
+            opener=lambda *args, **kwargs: response,
+            clock=iter([1]).__next__,
+            deadline=1,
+        )
+
+
+def test_complete_chat_retries_incomplete_stream_then_succeeds(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    payloads = []
+
+    def incomplete():
+        return reviewer.parse_chat_stream(
+            [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        )
+
+    responses = [incomplete, lambda: (200, model_response(), {})]
+
+    def requester(*args, **kwargs):
+        payloads.append(dict(kwargs["payload"]))
+        return responses.pop(0)()
+
+    assert (
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=requester,
+            sleep=lambda _: None,
+            jitter=lambda *_: 0,
+        )
+        == '{"summary": "ok"}'
+    )
+    assert len(payloads) == 2
+    assert all(payload["stream"] is True for payload in payloads)
 
 
 def test_complete_chat_retries_remote_disconnect_then_succeeds(reviewer, monkeypatch):

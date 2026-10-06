@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 LOGGER = logging.getLogger("code_review")
 
@@ -34,7 +34,7 @@ MAX_DIFF_CHARS = 200_000
 MAX_INLINE_COMMENTS = 8
 MAX_COMMENT_CHARS = 8_000
 MAX_PREVIOUS_COMMENTS = 30
-MODEL_TIMEOUT_SECONDS = 8 * 60
+MODEL_TIMEOUT_SECONDS = 3 * 60
 MODEL_BUDGET_SECONDS = 12 * 60
 MAX_RETRY_ATTEMPTS = 3
 MAX_RETRY_DELAY_SECONDS = 60
@@ -165,6 +165,103 @@ def http_json(
 def describe_exception(exc: BaseException) -> str:
     detail = str(exc)
     return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+def parse_chat_stream(lines: Iterable[bytes]) -> str:
+    content: list[str] = []
+    complete = False
+    for raw_line in lines:
+        try:
+            line = raw_line.decode("utf-8").rstrip("\r\n")
+        except UnicodeDecodeError as exc:
+            raise TransportError("model API stream returned invalid UTF-8") from exc
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        data = line[5:].lstrip()
+        if data == "[DONE]":
+            complete = True
+            break
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError as exc:
+            raise TransportError("model API stream returned invalid JSON") from exc
+        if not isinstance(chunk, dict):
+            continue
+        if "error" in chunk:
+            raise TransportError("model API stream returned an error")
+        choices = chunk.get("choices") or []
+        if not choices or not isinstance(choices[0], dict):
+            continue
+        choice = choices[0]
+        if choice.get("finish_reason") is not None:
+            complete = True
+        delta = choice.get("delta") or {}
+        value = delta.get("content") if isinstance(delta, dict) else None
+        if isinstance(value, str):
+            content.append(value)
+    if not complete:
+        raise TransportError("model API stream ended before completion")
+    return "".join(content)
+
+
+def http_stream_chat(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    payload: Any = None,
+    timeout: float = 30,
+    operation: str = "model API",
+    opener: Callable[..., Any] = urllib.request.urlopen,
+    clock: Callable[[], float] = time.monotonic,
+    deadline: float | None = None,
+) -> tuple[int, Any, dict[str, str]]:
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    try:
+        with opener(req, timeout=timeout) as resp:
+            response_headers = {k: v for k, v in resp.headers.items()}
+            content_type = next(
+                (
+                    value
+                    for key, value in response_headers.items()
+                    if key.lower() == "content-type"
+                ),
+                "",
+            )
+            if content_type.lower().split(";", 1)[0] != "text/event-stream":
+                raw = resp.read()
+                try:
+                    parsed = json.loads(raw.decode("utf-8")) if raw else None
+                except json.JSONDecodeError as exc:
+                    raise TransportError(f"{operation} returned invalid JSON") from exc
+                return resp.status, parsed, response_headers
+
+            def checked_lines() -> Iterable[bytes]:
+                for line in resp:
+                    if deadline is not None and clock() >= deadline:
+                        raise ModelRequestError("model API request budget exhausted")
+                    yield line
+
+            content = parse_chat_stream(checked_lines())
+            return (
+                resp.status,
+                {"choices": [{"message": {"content": content}}]},
+                response_headers,
+            )
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            parsed = json.loads(raw.decode("utf-8")) if raw else None
+        except json.JSONDecodeError:
+            parsed = {"message": raw.decode("utf-8", errors="replace")}
+        return exc.code, parsed, {k: v for k, v in exc.headers.items()}
+    except TransportError:
+        raise
+    except TRANSPORT_EXCEPTIONS as exc:
+        raise TransportError(
+            f"{operation} transport request failed: {describe_exception(exc)}"
+        ) from exc
 
 
 def is_transient_status(status: int) -> bool:
@@ -802,7 +899,7 @@ def complete_chat(
     user: str,
     timeout: int = MODEL_TIMEOUT_SECONDS,
     *,
-    requester: Callable[..., tuple[int, Any, dict[str, str]]] = http_json,
+    requester: Callable[..., tuple[int, Any, dict[str, str]]] = http_stream_chat,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     jitter: Callable[[float, float], float] = random.uniform,
@@ -819,6 +916,7 @@ def complete_chat(
             {"role": "user", "content": user},
         ],
         "response_format": {"type": "json_object"},
+        "stream": True,
     }
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -841,6 +939,9 @@ def complete_chat(
         }
         if requester is http_json:
             kwargs["operation"] = "model API"
+        elif requester is http_stream_chat:
+            kwargs["clock"] = clock
+            kwargs["deadline"] = deadline
         return requester(api_url, **kwargs)
 
     def request_with_model_retries(
