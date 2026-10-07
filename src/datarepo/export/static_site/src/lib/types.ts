@@ -4,6 +4,8 @@ export interface ExportedTablePartition {
   column_name: string
   operator?: string
   type_annotation: string | null
+  // 'in' / 'not in' filters carry a list value (e.g. Filter("id", "in", [1, 2])); every
+  // other operator carries a scalar.
   value: ExportedFilterValue
 }
 
