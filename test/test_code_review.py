@@ -1,6 +1,9 @@
+import http.client
 import importlib.util
+import io
 import json
 from pathlib import Path
+import urllib.error
 
 import pytest
 
@@ -173,9 +176,7 @@ def test_select_inline_comments_excludes_previous_lines(reviewer):
         {"path": "a.py", "line": 10, "severity": "high", "body": "old finding"},
         {"path": "a.py", "line": 12, "severity": "high", "body": "new finding"},
     ]
-    selected = reviewer.select_inline_comments(
-        raw, valid, exclude={("a.py", 10)}
-    )
+    selected = reviewer.select_inline_comments(raw, valid, exclude={("a.py", 10)})
     assert [c["line"] for c in selected] == [12]
 
 
@@ -406,9 +407,7 @@ def test_list_unresolved_bot_threads_keeps_bot_open_threads(reviewer):
                                 "comments": {
                                     "nodes": [
                                         {
-                                            "author": {
-                                                "login": "code-review-bot[bot]"
-                                            },
+                                            "author": {"login": "code-review-bot[bot]"},
                                             "body": "null filter dropped",
                                             "path": "a.py",
                                             "line": 12,
@@ -423,9 +422,7 @@ def test_list_unresolved_bot_threads_keeps_bot_open_threads(reviewer):
                                 "comments": {
                                     "nodes": [
                                         {
-                                            "author": {
-                                                "login": "code-review-bot[bot]"
-                                            },
+                                            "author": {"login": "code-review-bot[bot]"},
                                             "body": "old",
                                             "path": "a.py",
                                             "line": 1,
@@ -455,9 +452,7 @@ def test_list_unresolved_bot_threads_keeps_bot_open_threads(reviewer):
                                 "comments": {
                                     "nodes": [
                                         {
-                                            "author": {
-                                                "login": "code-review-bot[bot]"
-                                            },
+                                            "author": {"login": "code-review-bot[bot]"},
                                             "body": "outdated line",
                                             "path": "b.py",
                                             "line": None,
@@ -477,9 +472,7 @@ def test_list_unresolved_bot_threads_keeps_bot_open_threads(reviewer):
         assert url.endswith("/graphql")
         return 200, response, {}
 
-    github = reviewer.GitHubClient(
-        "t", "neuralinkcorp/datarepo", requester=requester
-    )
+    github = reviewer.GitHubClient("t", "neuralinkcorp/datarepo", requester=requester)
     threads = github.list_unresolved_bot_threads(12, "code-review-bot[bot]")
     assert [item["id"] for item in threads] == ["TH_KEEP", "TH_FALLBACK_LINE"]
     assert threads[0]["line"] == 12
@@ -505,3 +498,357 @@ def test_parse_next_link(reviewer):
     )
     assert reviewer.parse_next_link(header).endswith("page=2")
     assert reviewer.parse_next_link(None) is None
+
+
+def model_response():
+    return {"choices": [{"message": {"content": '{"summary": "ok"}'}}]}
+
+
+class FakeResponse:
+    def __init__(self, *, lines=(), raw=b"", headers=None, status=200):
+        self.lines = lines
+        self.raw = raw
+        self.headers = headers or {}
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def __iter__(self):
+        return iter(self.lines)
+
+    def read(self):
+        return self.raw
+
+
+def test_parse_chat_stream_joins_content_and_ignores_non_content_chunks(reviewer):
+    lines = [
+        b": keep-alive\n",
+        b"\n",
+        b'data: {"choices": [{"delta": {"role": "assistant"}}]}\n',
+        b'data:{"choices": [{"delta": {"reasoning_content": "think"}}]}\n',
+        b'data: {"choices": []}\n',
+        b'data: {"choices": [{"delta": {"content": "hello"}}]}\n',
+        b'data: {"choices": [{"delta": {"content": " world"}}]}\n',
+        b"data: [DONE]\n",
+    ]
+
+    assert reviewer.parse_chat_stream(lines) == "hello world"
+
+
+def test_parse_chat_stream_accepts_finish_reason_without_done(reviewer):
+    lines = [
+        b'data: {"choices": [{"delta": {"content": "ok"}, '
+        b'"finish_reason": "stop"}]}\n'
+    ]
+
+    assert reviewer.parse_chat_stream(lines) == "ok"
+
+
+def test_parse_chat_stream_rejects_incomplete_and_error_streams(reviewer):
+    with pytest.raises(reviewer.TransportError, match="before completion"):
+        reviewer.parse_chat_stream(
+            [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        )
+    with pytest.raises(reviewer.TransportError, match="returned an error"):
+        reviewer.parse_chat_stream([b'data: {"error": {"message": "bad"}}\n'])
+
+
+def test_http_stream_chat_reads_sse_response(reviewer):
+    response = FakeResponse(
+        lines=[
+            b'data: {"choices": [{"delta": {"content": "hello"}}]}\n',
+            b'data: {"choices": [{"delta": {"content": " world"}}]}\n',
+            b"data: [DONE]\n",
+        ],
+        headers={"Content-Type": "text/event-stream; charset=utf-8"},
+    )
+
+    status, body, headers = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: response,
+    )
+
+    assert status == 200
+    assert body == {"choices": [{"message": {"content": "hello world"}}]}
+    assert headers == {"Content-Type": "text/event-stream; charset=utf-8"}
+
+
+def test_http_stream_chat_accepts_plain_json_response(reviewer):
+    response = FakeResponse(
+        raw=json.dumps(model_response()).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+
+    status, body, _ = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: response,
+    )
+
+    assert status == 200
+    assert body == model_response()
+
+
+def test_http_stream_chat_returns_http_error_status(reviewer):
+    error = urllib.error.HTTPError(
+        "https://example.invalid", 503, "busy", {}, io.BytesIO(b'{"message": "busy"}')
+    )
+
+    status, body, headers = reviewer.http_stream_chat(
+        "https://example.invalid",
+        opener=lambda *args, **kwargs: (_ for _ in ()).throw(error),
+    )
+
+    assert (status, body, headers) == (503, {"message": "busy"}, {})
+
+
+def test_http_stream_chat_wraps_mid_stream_disconnect(reviewer):
+    response = FakeResponse(
+        lines=(
+            line for line in [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        ),
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    def broken_lines():
+        yield b'data: {"choices": [{"delta": {"content": "x"}}]}\n'
+        raise http.client.RemoteDisconnected("closed")
+
+    response.lines = broken_lines()
+    with pytest.raises(reviewer.TransportError, match="RemoteDisconnected"):
+        reviewer.http_stream_chat(
+            "https://example.invalid",
+            opener=lambda *args, **kwargs: response,
+        )
+
+
+def test_http_stream_chat_enforces_deadline_while_reading(reviewer):
+    response = FakeResponse(
+        lines=[b'data: {"choices": [{"delta": {"content": "x"}}]}\n'],
+        headers={"Content-Type": "text/event-stream"},
+    )
+
+    with pytest.raises(reviewer.ModelRequestError, match="budget exhausted"):
+        reviewer.http_stream_chat(
+            "https://example.invalid",
+            opener=lambda *args, **kwargs: response,
+            clock=iter([1]).__next__,
+            deadline=1,
+        )
+
+
+def test_complete_chat_retries_incomplete_stream_then_succeeds(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    payloads = []
+
+    def incomplete():
+        return reviewer.parse_chat_stream(
+            [b'data: {"choices": [{"delta": {"content": "x"}}]}\n']
+        )
+
+    responses = [incomplete, lambda: (200, model_response(), {})]
+
+    def requester(*args, **kwargs):
+        payloads.append(dict(kwargs["payload"]))
+        return responses.pop(0)()
+
+    assert (
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=requester,
+            sleep=lambda _: None,
+            jitter=lambda *_: 0,
+        )
+        == '{"summary": "ok"}'
+    )
+    assert len(payloads) == 2
+    assert all(payload["stream"] is True for payload in payloads)
+
+
+def test_complete_chat_retries_remote_disconnect_then_succeeds(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    responses = [http.client.RemoteDisconnected("closed"), (200, model_response(), {})]
+    sleeps = []
+
+    def requester(*args, **kwargs):
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    assert (
+        reviewer.complete_chat(
+            "key", "model", "system", "user", requester=requester, sleep=sleeps.append
+        )
+        == '{"summary": "ok"}'
+    )
+    assert len(sleeps) == 1
+
+
+def test_complete_chat_retries_503_then_succeeds(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    responses = [(503, {"message": "busy"}, {}), (200, model_response(), {})]
+
+    assert (
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=lambda *args, **kwargs: responses.pop(0),
+            sleep=lambda _: None,
+            jitter=lambda *_: 0,
+        )
+        == '{"summary": "ok"}'
+    )
+
+
+def test_complete_chat_honors_retry_after(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    responses = [(429, {}, {"Retry-After": "7"}), (200, model_response(), {})]
+    sleeps = []
+
+    reviewer.complete_chat(
+        "key",
+        "model",
+        "system",
+        "user",
+        requester=lambda *args, **kwargs: responses.pop(0),
+        sleep=sleeps.append,
+    )
+    assert sleeps == [7]
+
+
+def test_complete_chat_does_not_retry_400(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    calls = []
+
+    with pytest.raises(reviewer.ModelRequestError, match="HTTP 400"):
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=lambda *args, **kwargs: calls.append(1) or (400, {}, {}),
+            sleep=lambda _: None,
+        )
+    assert calls == [1]
+
+
+def test_complete_chat_exhausted_error_hides_model_url(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+
+    with pytest.raises(reviewer.ModelRequestError) as exc_info:
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=lambda *args, **kwargs: (503, {}, {}),
+            sleep=lambda _: None,
+            jitter=lambda *_: 0,
+        )
+    assert "after 3 attempts" in str(exc_info.value)
+    assert REVIEW_ENV["MODEL_API_URL"] not in str(exc_info.value)
+
+
+def test_complete_chat_fails_when_budget_exhausted(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    clock = iter([0, 0, 2]).__next__
+
+    with pytest.raises(reviewer.ModelRequestError, match="budget exhausted"):
+        reviewer.complete_chat(
+            "key",
+            "model",
+            "system",
+            "user",
+            requester=lambda *args, **kwargs: (503, {}, {}),
+            sleep=lambda _: None,
+            clock=clock,
+            jitter=lambda *_: 0,
+            budget=1,
+        )
+
+
+def test_github_get_retries_503(reviewer):
+    responses = [(503, {}, {}), (200, {"ok": True}, {})]
+    sleeps = []
+    github = reviewer.GitHubClient(
+        "t",
+        "neuralinkcorp/datarepo",
+        requester=lambda *args, **kwargs: responses.pop(0),
+        sleep=sleeps.append,
+        jitter=lambda *_: 0,
+    )
+
+    assert github.get_json("/repos/neuralinkcorp/datarepo/pulls/12") == {"ok": True}
+    assert sleeps == [1]
+
+
+def test_post_review_avoids_duplicate_after_transport_error(reviewer):
+    path = "/repos/neuralinkcorp/datarepo/pulls/12/reviews"
+
+    class GitHub:
+        repo = "neuralinkcorp/datarepo"
+
+        def __init__(self):
+            self.posts = 0
+
+        def post_json(self, unused_path, payload):
+            self.posts += 1
+            raise reviewer.AmbiguousPostError("transport failed")
+
+        def get_all(self, unused_path):
+            return [{"user": {"login": "code-review-bot[bot]"}, "commit_id": "abc"}]
+
+    github = GitHub()
+    posted = reviewer.post_review(github, 12, {"commit_id": "abc"})
+    assert posted["id"] == "existing"
+    assert github.posts == 1
+
+
+def test_post_review_reposts_after_transport_error_when_missing(reviewer):
+    class GitHub:
+        repo = "neuralinkcorp/datarepo"
+
+        def __init__(self):
+            self.posts = 0
+
+        def post_json(self, unused_path, payload):
+            self.posts += 1
+            if self.posts == 1:
+                raise reviewer.AmbiguousPostError("transport failed")
+            return 200, {"id": 42}
+
+        def get_all(self, unused_path):
+            return []
+
+    github = GitHub()
+    assert reviewer.post_review(github, 12, {"commit_id": "abc"}) == {"id": 42}
+    assert github.posts == 2
+
+
+def test_complete_chat_retries_response_format_fallback(reviewer, monkeypatch):
+    monkeypatch.setenv("MODEL_API_URL", REVIEW_ENV["MODEL_API_URL"])
+    payloads = []
+    responses = [
+        (400, {"message": "response_format unsupported"}, {}),
+        (200, model_response(), {}),
+    ]
+
+    def requester(*args, **kwargs):
+        payloads.append(dict(kwargs["payload"]))
+        return responses.pop(0)
+
+    assert (
+        reviewer.complete_chat("key", "model", "system", "user", requester=requester)
+        == '{"summary": "ok"}'
+    )
+    assert "response_format" in payloads[0]
+    assert "response_format" not in payloads[1]

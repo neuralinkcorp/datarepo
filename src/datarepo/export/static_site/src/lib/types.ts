@@ -1,10 +1,12 @@
+export type ExportedFilterValue = string | number | boolean | null | ExportedFilterValue[]
+
 export interface ExportedTablePartition {
   column_name: string
   operator?: string
   type_annotation: string | null
   // 'in' / 'not in' filters carry a list value (e.g. Filter("id", "in", [1, 2])); every
   // other operator carries a scalar.
-  value: string | number | null | (string | number)[]
+  value: ExportedFilterValue
 }
 
 export interface ExportedTableColumn {
