@@ -1,4 +1,4 @@
-import { ExportedCatalog, ExportedDatabase, ExportedTable, ExportedTablePartition } from './types';
+import { ExportedCatalog, ExportedDatabase, ExportedFilterValue, ExportedTable, ExportedTablePartition } from './types';
 
 enum BracketType {
   Parentheses,
@@ -63,7 +63,26 @@ function formatSqlPredicate(partition: ExportedTablePartition): string {
   return `${partition.column_name} ${operator} ${value}`
 }
 
-function formatFilterValue(partition: ExportedTablePartition): string {
+function formatPythonLiteral(value: ExportedFilterValue): string | null {
+  if (value === null) return 'None'
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'boolean') return value ? 'True' : 'False'
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // JSON transport has already converted numbers to JavaScript precision.
+    // An unsafe integer's shortest decimal may differ from its exact value:
+    // keep a floating-point token so Python performs the same rounding.
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) return value.toExponential()
+    return Object.is(value, -0) ? '-0.0' : String(value)
+  }
+  if (Array.isArray(value)) {
+    const values = value.map(formatPythonLiteral)
+    if (values.some(value => value === null)) return null
+    return '[' + values.join(', ') + ']'
+  }
+  return null
+}
+
+function formatFilterValue(partition: ExportedTablePartition): string | null {
   const operator = partitionOperator(partition)
   if (
     operator === 'is null' ||
@@ -73,7 +92,7 @@ function formatFilterValue(partition: ExportedTablePartition): string {
   ) {
     return 'None'
   }
-  return isStringPartition(partition) ? `"${partition.value}"` : `${partition.value}`
+  return formatPythonLiteral(partition.value)
 }
 
 interface GenTableCodeOptions {
@@ -89,7 +108,7 @@ interface GenTableCodeOptions {
 }
 
 export function genTableCode({ catalog, database, table, formatSqlFilter }: GenTableCodeOptions): string {
-  const params = [`"${table.name}"`]
+  const params = [JSON.stringify(table.name)]
 
   if (table.partitions.length !== 0) {
     if (formatSqlFilter) {
@@ -99,8 +118,10 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
       const filters = []
 
       for (const partition of table.partitions) {
+        const value = formatFilterValue(partition)
+        if (value === null) return '# cannot render this filter value'
         filters.push(
-          `Filter("${partition.column_name}", "${partitionOperator(partition)}", ${formatFilterValue(partition)})`
+          `Filter(${JSON.stringify(partition.column_name)}, ${JSON.stringify(partitionOperator(partition))}, ${value})`
         )
       }
 
@@ -119,7 +140,7 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
   }
 
   if (table.selected_columns != null) {
-    params.push(`columns=${formatMultiLineArgs(table.selected_columns.map((column => '"' + column + '"')), BracketType.Brackets)}`)
+    params.push(`columns=${formatMultiLineArgs(table.selected_columns.map(column => JSON.stringify(column)), BracketType.Brackets)}`)
   }
 
   const formattedParams = formatPythonTupleOrParams(params)
@@ -129,7 +150,7 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
   retTable += `from datarepo.core import Filter\n`
 
   retTable += `\n`
-  retTable += `df = ${catalog.name}.db("${database.name}").table${formattedParams}.collect()`
+  retTable += `df = ${catalog.name}.db(${JSON.stringify(database.name)}).table${formattedParams}.collect()`
 
   return retTable.trim()
 }

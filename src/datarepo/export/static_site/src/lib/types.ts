@@ -1,8 +1,10 @@
+export type ExportedFilterValue = string | number | boolean | null | ExportedFilterValue[]
+
 export interface ExportedTablePartition {
   column_name: string
   operator?: string
   type_annotation: string | null
-  value: string | number | null
+  value: ExportedFilterValue
 }
 
 export interface ExportedTableColumn {
