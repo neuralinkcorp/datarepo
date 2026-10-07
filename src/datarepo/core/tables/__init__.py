@@ -4,7 +4,7 @@ from datarepo.core.tables.deltalake_table import (
     DeltalakeTable,
 )
 from datarepo.core.tables.metadata import TableMetadata, TableProtocol, TableSchema
-from datarepo.core.tables.parquet_table import ParquetTable
+from datarepo.core.tables.parquet_table import DatasourceNotAvailable, ParquetTable
 from datarepo.core.tables.clickhouse_table import (
     ClickHouseTable,
     ClickHouseTableConfig,
@@ -22,6 +22,7 @@ __all__ = [
     "DeltalakeTable",
     "DeltaCacheOptions",
     "ParquetTable",
+    "DatasourceNotAvailable",
     "PartitioningScheme",
     "Filter",
     "Partition",
