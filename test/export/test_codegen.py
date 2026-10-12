@@ -288,7 +288,7 @@ def test_sql_output_control(generate_code):
         "from datarepo.core import Filter\n\n"
         'df = SampleCatalog.db("db").table(\n'
         '    "rows",\n'
-        "    filters=\"name like '%Brand%' and size >= 10\",\n"
+        "    filters=\"name like '%Brand%' escape '\\\\' and size >= 10\",\n"
         ").collect()"
     )
 
