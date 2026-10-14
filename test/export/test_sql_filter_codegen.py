@@ -8,6 +8,11 @@ wildcards in `contains` values, rendered `in`/`not in` list values via
 JavaScript's `Array.toString()`, and quoted strings only when
 `type_annotation` was exactly `"str"`/`"string"` rather than by the value's
 actual type.
+
+Also covers https://github.com/neuralinkcorp/datarepo/issues/80: values with no
+SQL literal form (dicts, or lists containing them) rendered as
+`[object Object]` instead of the `# cannot render this filter value`
+placeholder the `Filter(...)` snippet uses.
 """
 
 import json
@@ -203,3 +208,57 @@ class TestSqlFilterCodegen:
             ]
         )
         assert _extract_filters_arg(code) == "name is null"
+
+    def test_is_null_ignores_value(self, generate_sql_filter):
+        code = generate_sql_filter(
+            [
+                {
+                    "column_name": "name",
+                    "operator": "is not null",
+                    "type_annotation": "str",
+                    "value": {"a": 1},
+                }
+            ]
+        )
+        assert _extract_filters_arg(code) == "name is not null"
+
+    @pytest.mark.parametrize(
+        "operator, value",
+        [
+            ("=", {"a": 1}),
+            ("=", [1, 2]),
+            ("in", [1, {"a": 1}]),
+            ("not in", [1, [2, 3]]),
+            ("in", {"a": 1}),
+            ("contains", {"a": 1}),
+        ],
+    )
+    def test_unrenderable_value_shows_placeholder(
+        self, generate_sql_filter, operator, value
+    ):
+        code = generate_sql_filter(
+            [
+                {
+                    "column_name": "before",
+                    "operator": "=",
+                    "type_annotation": "str",
+                    "value": "supported",
+                },
+                {
+                    "column_name": "value",
+                    "operator": operator,
+                    "type_annotation": None,
+                    "value": value,
+                },
+                {
+                    "column_name": "after",
+                    "operator": "!=",
+                    "type_annotation": "str",
+                    "value": "other",
+                },
+            ]
+        )
+        assert code == "# cannot render this filter value"
+        namespace = {}
+        exec(code, namespace)
+        assert "df" not in namespace
