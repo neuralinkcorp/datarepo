@@ -67,27 +67,53 @@ function escapeSqlLikeValue(value: string): string {
 // Renders a single scalar (non-array) partition value as a SQL literal, quoting and escaping
 // it when it is a string regardless of what type_annotation claims (e.g. "large_string" or a
 // date-typed string column still need quotes).
-function formatSqlScalar(value: unknown, isString: boolean): string {
+function formatSqlScalar(value: unknown, isString: boolean): string | null {
+  if (value === null || value === undefined || typeof value === 'object') {
+    return null
+  }
   if (typeof value === 'string' || isString) {
     return `'${escapeSqlString(String(value))}'`
   }
-  return `${value}`
+  if (typeof value === 'boolean') {
+    return value ? 'TRUE' : 'FALSE'
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Object.is(value, -0) ? '-0.0' : `${value}`
+  }
+  return null
 }
 
-function formatSqlPredicate(partition: ExportedTablePartition): string {
+function formatSqlPredicate(partition: ExportedTablePartition): string | null {
   const operator = partitionOperator(partition)
   if (operator === 'is null' || operator === 'is not null') {
     return `${partition.column_name} ${operator}`
   }
+  if (
+    operator === 'includes' ||
+    operator === 'includes any' ||
+    operator === 'includes all'
+  ) {
+    return null
+  }
   if (operator === 'contains') {
+    if (
+      partition.value === null ||
+      partition.value === undefined ||
+      typeof partition.value === 'object'
+    ) {
+      return null
+    }
     return `${partition.column_name} like '%${escapeSqlLikeValue(String(partition.value))}%' escape '\\'`
   }
   if (operator === 'in' || operator === 'not in') {
     const values = Array.isArray(partition.value) ? partition.value : [partition.value]
+    if (values.length === 0) return null
     const rendered = values.map((v) => formatSqlScalar(v, isStringPartition(partition)))
+    if (rendered.some((v) => v === null)) return null
     return `${partition.column_name} ${operator} (${rendered.join(', ')})`
   }
   const value = formatSqlScalar(partition.value, isStringPartition(partition))
+  if (value === null) return null
   return `${partition.column_name} ${operator} ${value}`
 }
 
@@ -140,7 +166,11 @@ export function genTableCode({ catalog, database, table, formatSqlFilter }: GenT
 
   if (table.partitions.length !== 0) {
     if (formatSqlFilter) {
-      const stringFilter = table.partitions.map(formatSqlPredicate).join(' and ');
+      const predicates = table.partitions.map(formatSqlPredicate);
+      if (predicates.some((p) => p === null)) {
+        return '# cannot render this filter value';
+      }
+      const stringFilter = predicates.join(' and ');
       // JSON string escaping produces a valid Python double-quoted string literal for any
       // value (including one containing embedded '"' or '\', which would otherwise end the
       // Python string early), since Python accepts the same \", \\, and \uXXXX escapes JSON does.
