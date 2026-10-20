@@ -78,6 +78,7 @@ function formatSqlScalar(value: unknown, isString: boolean): string | null {
     return value ? 'TRUE' : 'FALSE'
   }
   if (typeof value === 'number' && Number.isFinite(value)) {
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) return value.toExponential()
     return Object.is(value, -0) ? '-0.0' : `${value}`
   }
   return null

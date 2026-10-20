@@ -203,3 +203,21 @@ class TestSqlFilterCodegen:
             ]
         )
         assert _extract_filters_arg(code) == "name is null"
+
+    @pytest.mark.parametrize(
+        "partition",
+        [
+            {"column_name": "name", "operator": "=", "type_annotation": "str", "value": None},
+            {"column_name": "id", "operator": "in", "type_annotation": "int", "value": []},
+            {"column_name": "id", "operator": "in", "type_annotation": "int", "value": [1, None]},
+            {"column_name": "meta", "operator": "=", "type_annotation": "str", "value": {"nested": 1}},
+            {"column_name": "tags", "operator": "includes", "type_annotation": "list", "value": "x"},
+            {"column_name": "tags", "operator": "includes any", "type_annotation": "list", "value": ["x"]},
+            {"column_name": "tags", "operator": "includes all", "type_annotation": "list", "value": ["x"]},
+        ],
+    )
+    def test_unsupported_sql_filter_value_emits_placeholder(
+        self, generate_sql_filter, partition
+    ):
+        code = generate_sql_filter([partition])
+        assert code == "# cannot render this filter value"
