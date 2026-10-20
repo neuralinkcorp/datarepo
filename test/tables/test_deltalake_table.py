@@ -591,6 +591,33 @@ class TestDeltalakeTable:
         assert old["value"].to_list() == [10]
         assert latest["value"].to_list() == [20]
 
+    @pytest.mark.parametrize(
+        ("value", "expected_names"),
+        [
+            ("ab", ["abc"]),
+            # LIKE wildcards and the escape character are matched literally
+            ("0%", ["100%"]),
+            ("a_b", ["a_b"]),
+            ("c\\d", ["c\\d"]),
+        ],
+    )
+    def test_call_contains_is_literal(
+        self, tmp_path: Path, value: str, expected_names: list[str]
+    ):
+        schema = pa.schema([("name", pa.string()), ("value", pa.int64())])
+        names = ["100%", "1000", "a_b", "axb", "abc", "c\\d", "cd"]
+        write_deltalake(
+            str(tmp_path / "contains"),
+            pa.table({"name": names, "value": list(range(len(names)))}, schema=schema),
+        )
+        table = DeltalakeTable(
+            name="contains", uri=str(tmp_path / "contains"), schema=schema
+        )
+
+        result = table(filters=[Filter("name", "contains", value)]).collect()
+
+        assert sorted(result["name"].to_list()) == expected_names
+
     def test_fetch_dfs_by_paths_batching_matches_unbatched(self, mock_pl_read_parquet):
         schema = pa.schema([("a", pa.int64()), ("b", pa.string())])
         files = ["df-ab.parquet", "df-ab2.parquet", "df-ab-reordered.parquet"]
