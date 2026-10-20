@@ -276,9 +276,20 @@ def value_to_sql_expr(value: Any, value_type: pa.DataType) -> str:
     else:
         value_str = str(value)
         # Escape the string so the user doesn't need to filter like ("col", "=", "'value'")
-        if pa.types.is_string(value_type):
+        if (
+            pa.types.is_string(value_type)
+            or pa.types.is_large_string(value_type)
+            or pa.types.is_string_view(value_type)
+            # DataFusion casts a quoted timestamp to the column type,
+            # applying any UTC offset in the value
+            or pa.types.is_timestamp(value_type)
+        ):
             escaped_str = escape_str_for_sql(value_str)
             value_str = f"'{escaped_str}'"
+        elif pa.types.is_date(value_type):
+            # A DATE literal, since array_contains does not cast a string to a date
+            escaped_str = escape_str_for_sql(value_str)
+            value_str = f"DATE '{escaped_str}'"
     return value_str
 
 

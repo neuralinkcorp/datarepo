@@ -1,3 +1,4 @@
+import datetime
 import os
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,9 @@ test_schema = pa.schema(
         ("date", pa.string()),
     ]
 )
+
+UTC = datetime.timezone.utc
+EST = datetime.timezone(datetime.timedelta(hours=-5))
 
 
 def pl_read_parquet(source, **kwargs):
@@ -400,6 +404,74 @@ class TestDeltalakeTable:
         actual_sorted = delta_table_definition(**args).collect().sort("value")
         expected_sorted = expected.sort("value")
         assert actual_sorted.equals(expected_sorted)
+
+    @pytest.mark.parametrize(
+        ("filters", "expected_values"),
+        [
+            ([Filter("date", "=", "2024-01-01")], [1]),
+            ([Filter("date", "=", datetime.date(2024, 1, 2))], [2]),
+            ([Filter("date", "in", ("2024-01-01", "2024-01-02"))], [1, 2]),
+            ([Filter("dates", "includes", "2024-01-02")], [2]),
+            ([Filter("ts", ">=", datetime.datetime(2024, 1, 1, 13))], [2]),
+            ([Filter("ts", "<", "2024-01-01 13:00:00")], [1]),
+            ([Filter("timestamps", "includes", "2024-01-01 12:00:00")], [1]),
+            (
+                [Filter("ts_utc", ">=", datetime.datetime(2024, 1, 1, 13, tzinfo=UTC))],
+                [2],
+            ),
+            # 08:00 at UTC-5 is 13:00 UTC
+            (
+                [Filter("ts_utc", "<", datetime.datetime(2024, 1, 1, 8, tzinfo=EST))],
+                [1],
+            ),
+            ([Filter("name", "=", "alpha")], [1]),
+            ([Filter("name", "in", ("it's",))], [2]),
+        ],
+    )
+    def test_call_filters_typed_columns(
+        self,
+        tmp_path: Path,
+        filters: list[Filter],
+        expected_values: list[int],
+    ):
+        schema = pa.schema(
+            [
+                ("date", pa.date32()),
+                ("dates", pa.list_(pa.date32())),
+                ("ts", pa.timestamp("us")),
+                ("timestamps", pa.list_(pa.timestamp("us"))),
+                ("ts_utc", pa.timestamp("us", tz="UTC")),
+                ("name", pa.large_string()),
+                ("value", pa.int64()),
+            ]
+        )
+        data = pa.table(
+            {
+                "date": [datetime.date(2024, 1, 1), datetime.date(2024, 1, 2)],
+                "dates": [[datetime.date(2024, 1, 1)], [datetime.date(2024, 1, 2)]],
+                "ts": [
+                    datetime.datetime(2024, 1, 1, 12),
+                    datetime.datetime(2024, 1, 1, 14),
+                ],
+                "timestamps": [
+                    [datetime.datetime(2024, 1, 1, 12)],
+                    [datetime.datetime(2024, 1, 1, 14)],
+                ],
+                "ts_utc": [
+                    datetime.datetime(2024, 1, 1, 12, tzinfo=UTC),
+                    datetime.datetime(2024, 1, 1, 14, tzinfo=UTC),
+                ],
+                "name": ["alpha", "it's"],
+                "value": [1, 2],
+            },
+            schema=schema,
+        )
+        uri = str(tmp_path / "typed")
+        write_deltalake(uri, data)
+        table = DeltalakeTable(name="typed", uri=uri, schema=schema)
+
+        actual = table(filters=filters).collect()["value"].sort().to_list()
+        assert actual == expected_values
 
     def test_schema_version_uri_resolution(self):
         v1_schema = pa.schema([("id", pa.int64()), ("value", pa.int64())])
