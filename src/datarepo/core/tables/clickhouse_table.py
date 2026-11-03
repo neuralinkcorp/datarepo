@@ -288,15 +288,24 @@ class ClickHouseTable(TableProtocol):
                         set_expressions.append(f"`{f.column}` IS NULL")
                     elif f.operator == "is not null":
                         set_expressions.append(f"`{f.column}` IS NOT NULL")
-                    elif f.operator in [
-                        "contains",
-                        "includes",
-                        "includes any",
-                        "includes all",
-                    ]:
+                    elif f.operator == "contains":
                         set_expressions.append(
-                            f"`{f.column}` LIKE {format_value_for_sql(f.value)}"
+                            f"positionUTF8(`{f.column}`, "
+                            f"{format_value_for_sql(f.value)}) > 0"
                         )
+                    elif f.operator == "includes":
+                        set_expressions.append(
+                            f"has(`{f.column}`, {format_value_for_sql(f.value)})"
+                        )
+                    elif f.operator in ["includes any", "includes all"]:
+                        if not isinstance(f.value, (list, tuple)):
+                            raise TypeError(
+                                f"Filter operator {f.operator!r} requires a list or "
+                                f"tuple value, got {type(f.value).__name__}"
+                            )
+                        values = ", ".join(format_value_for_sql(v) for v in f.value)
+                        func = "hasAny" if f.operator == "includes any" else "hasAll"
+                        set_expressions.append(f"{func}(`{f.column}`, [{values}])")
                     else:
                         raise ValueError(f"Unsupported filter operator: {f.operator!r}")
 

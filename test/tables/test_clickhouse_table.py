@@ -141,7 +141,7 @@ class TestClickHouseTable:
             ("<=", 1, "`implant_id` <= 1"),
             ("in", [1, 2, 3], "`implant_id` IN (1, 2, 3)"),
             ("not in", [1, 2, 3], "`implant_id` NOT IN (1, 2, 3)"),
-            ("contains", "%test%", "`str_value` LIKE '%test%'"),
+            ("contains", "test", "positionUTF8(`str_value`, 'test') > 0"),
         ],
     )
     def test_filter_operators(
