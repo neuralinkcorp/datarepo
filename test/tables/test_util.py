@@ -58,7 +58,19 @@ class TestUtil:
             (
                 test_schema,
                 Filter("str_col", "contains", "x'"),
-                "(str_col like '%x''%')",
+                "(str_col like '%x''%' escape '\\')",
+            ),
+            # contains is a literal substring match: LIKE wildcards and the escape
+            # character in the value are escaped
+            (
+                test_schema,
+                Filter("str_col", "contains", "50%_x"),
+                "(str_col like '%50\\%\\_x%' escape '\\')",
+            ),
+            (
+                test_schema,
+                Filter("str_col", "contains", "a\\b"),
+                "(str_col like '%a\\\\b%' escape '\\')",
             ),
             # Test list columns
             (
