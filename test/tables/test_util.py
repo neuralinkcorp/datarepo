@@ -1,3 +1,4 @@
+import datetime
 from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ProfileNotFound
@@ -22,6 +23,12 @@ test_schema = pa.schema(
         ("int_col", pa.int64()),
         ("list_col", pa.list_(pa.int64())),
         ("list_str_col", pa.list_(pa.string())),
+        ("large_str_col", pa.large_string()),
+        ("str_view_col", pa.string_view()),
+        ("date_col", pa.date32()),
+        ("ts_col", pa.timestamp("us")),
+        ("ts_utc_col", pa.timestamp("us", tz="UTC")),
+        ("list_date_col", pa.list_(pa.date32())),
     ]
 )
 
@@ -73,6 +80,48 @@ class TestUtil:
                 test_schema,
                 Filter("list_col", "includes any", (1, 2, 3)),
                 "(array_contains(list_col, 1) or array_contains(list_col, 2) or array_contains(list_col, 3))",
+            ),
+            # Other string types are quoted and escaped like pa.string()
+            (
+                test_schema,
+                Filter("large_str_col", "=", "it's"),
+                "(large_str_col = 'it''s')",
+            ),
+            (
+                test_schema,
+                Filter("str_view_col", "in", ("a", "b")),
+                "(str_view_col in ('a', 'b'))",
+            ),
+            # Date columns get a DATE literal, from a string or a date
+            (
+                test_schema,
+                Filter("date_col", "=", "2024-01-01"),
+                "(date_col = DATE '2024-01-01')",
+            ),
+            (
+                test_schema,
+                Filter("date_col", "in", (datetime.date(2024, 1, 1),)),
+                "(date_col in (DATE '2024-01-01'))",
+            ),
+            (
+                test_schema,
+                Filter("list_date_col", "includes", "2024-01-01"),
+                "(array_contains(list_date_col, DATE '2024-01-01'))",
+            ),
+            # Timestamp columns are quoted, keeping any UTC offset of the value
+            (
+                test_schema,
+                Filter("ts_col", ">=", datetime.datetime(2024, 1, 1, 13)),
+                "(ts_col >= '2024-01-01 13:00:00')",
+            ),
+            (
+                test_schema,
+                Filter(
+                    "ts_utc_col",
+                    "<",
+                    datetime.datetime(2024, 1, 1, 13, tzinfo=datetime.timezone.utc),
+                ),
+                "(ts_utc_col < '2024-01-01 13:00:00+00:00')",
             ),
         ],
     )
