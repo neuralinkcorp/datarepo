@@ -7,3 +7,28 @@ site/
 docs/examples/web_catalog/
 
 .DS_Store
+
+# Downloaded build tools
+/.build-tools/
+/gradle-*-bin.zip
+
+# Android/Kotlin generated files
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+**/.idea/
+*.iml
+
+# Local Python environments
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets and signing keys
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+**/keystore.properties
