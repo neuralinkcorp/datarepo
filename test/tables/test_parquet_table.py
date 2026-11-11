@@ -151,6 +151,35 @@ class TestParquetTable:
         assert sorted(result["implant_id"].to_list()) == expected_implant_ids
 
     @pytest.mark.parametrize(
+        ("filter", "expected_implant_ids"),
+        [
+            (Filter("date_time", "=", "2023-01-01 00:00:00+00:00"), [1]),
+            (
+                Filter(
+                    "date_time",
+                    "in",
+                    ["2023-01-01 00:00:00+00:00", "2023-01-01 08:00:00+00:00"],
+                ),
+                [1, 2],
+            ),
+        ],
+    )
+    def test_read_date_filter_as_string(
+        self,
+        partitioned_parquet_table: ParquetTable,
+        filter: Filter,
+        expected_implant_ids: list[int],
+    ):
+        # Regression test: a string filter value against a Datetime column used to
+        # raise polars.exceptions.InvalidOperationError ("cannot compare
+        # 'date/datetime/time' to a string value"), even though the same filter
+        # value works against DeltalakeTable, where DataFusion auto-casts a quoted
+        # string literal to the column's type (see value_to_sql_expr in util.py).
+        result = partitioned_parquet_table(filters=[filter]).collect()
+
+        assert sorted(result["implant_id"].unique().to_list()) == expected_implant_ids
+
+    @pytest.mark.parametrize(
         (
             "filters",
             "expected",

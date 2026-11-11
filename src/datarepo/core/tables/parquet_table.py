@@ -1,5 +1,6 @@
 # mypy: disable-error-code=override
 
+import datetime
 from os import path
 from typing import Any, Optional, Sequence
 
@@ -65,12 +66,35 @@ def pl_any(exprs: Sequence[pl.Expr]) -> pl.Expr:
     return result
 
 
-def _filters_to_conjunction_expr(filters: list[Filter]) -> pl.Expr | None:
+def _coerce_temporal_value(value: Any, dtype: pl.DataType | None) -> Any:
+    """Parse an ISO date/datetime string so it can be compared to a Date/Datetime column.
+
+    DataFusion (used for ``DeltalakeTable`` filters, see ``value_to_sql_expr`` in
+    util.py) auto-casts a quoted date/timestamp string literal to the column's
+    type, so ``Filter("date_col", "=", "2024-01-01")`` works there. Polars does
+    not: comparing a Date/Datetime column directly to a plain string raises
+    ``InvalidOperationError``. Parse the value up front so ParquetTable accepts
+    the same filter values as DeltalakeTable.
+    """
+    if not isinstance(value, str):
+        return value
+    if dtype == pl.Date:
+        return datetime.date.fromisoformat(value)
+    elif isinstance(dtype, pl.Datetime):
+        return datetime.datetime.fromisoformat(value)
+    return value
+
+
+def _filters_to_conjunction_expr(
+    filters: list[Filter], schema: pl.Schema | None = None
+) -> pl.Expr | None:
     """For a list of filters, return a polars expression that represents
     the conjunction (AND) of all filters.
 
     Args:
         filters (list[Filter]): A list of filters to combine.
+        schema (pl.Schema | None, optional): schema of the table, used to coerce
+            string filter values for temporal columns. Defaults to None.
 
     Returns:
         pl.Expr | None: A polars expression that represents the conjunction of all filters,
@@ -79,25 +103,27 @@ def _filters_to_conjunction_expr(filters: list[Filter]) -> pl.Expr | None:
     if not filters:
         return None
 
-    result = _filter_to_expr(filters[0])
-    for filter in filters[1:]:
-        result = result & _filter_to_expr(filter)
-
-    return pl_all([_filter_to_expr(filter) for filter in filters])
+    return pl_all([_filter_to_expr(filter, schema) for filter in filters])
 
 
-def _filters_to_expr(filters: NormalizedFilters) -> pl.Expr | None:
+def _filters_to_expr(
+    filters: NormalizedFilters, schema: pl.Schema | None = None
+) -> pl.Expr | None:
     """For a list of lists of filters, return a polars expression that represents
     the disjunction (OR) of all conjunctions of filters.
 
     Args:
         filters (NormalizedFilters): A list of lists of filters, where each inner list represents a conjunction (AND) of filters.
+        schema (pl.Schema | None, optional): schema of the table, used to coerce
+            string filter values for temporal columns. Defaults to None.
 
     Returns:
         pl.Expr | None: A polars expression that represents the disjunction of all conjunctions of filters,
         or None if there are no filters.
     """
-    conjunctions = [_filters_to_conjunction_expr(filter_set) for filter_set in filters]
+    conjunctions = [
+        _filters_to_conjunction_expr(filter_set, schema) for filter_set in filters
+    ]
     not_none_conjunctions = [c for c in conjunctions if c is not None]
     if not not_none_conjunctions:
         return None
@@ -105,11 +131,13 @@ def _filters_to_expr(filters: NormalizedFilters) -> pl.Expr | None:
     return pl_any(not_none_conjunctions)
 
 
-def _filter_to_expr(filter: Filter) -> pl.Expr:
+def _filter_to_expr(filter: Filter, schema: pl.Schema | None = None) -> pl.Expr:
     """Convert a single filter to a polars expression.
 
     Args:
         filter (Filter): A filter object containing the column, operator, and value.
+        schema (pl.Schema | None, optional): schema of the table, used to coerce
+            string filter values for temporal columns. Defaults to None.
 
     Raises:
         ValueError: If the operator is not supported.
@@ -117,22 +145,29 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
     Returns:
         pl.Expr: A polars expression that represents the filter condition.
     """
+    dtype = schema.get(filter.column) if schema is not None else None
     if filter.operator == "=":
-        return pl.col(filter.column) == filter.value
+        return pl.col(filter.column) == _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == "!=":
-        return pl.col(filter.column) != filter.value
+        return pl.col(filter.column) != _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == "<":
-        return pl.col(filter.column) < filter.value
+        return pl.col(filter.column) < _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == ">":
-        return pl.col(filter.column) > filter.value
+        return pl.col(filter.column) > _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == "<=":
-        return pl.col(filter.column) <= filter.value
+        return pl.col(filter.column) <= _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == ">=":
-        return pl.col(filter.column) >= filter.value
+        return pl.col(filter.column) >= _coerce_temporal_value(filter.value, dtype)
     elif filter.operator == "in":
-        return pl.col(filter.column).is_in(filter.value)
+        # ponytail: only coerce "in"/"not in"; "includes"/"includes any"/"includes all"
+        # (list-membership filters) aren't covered since no failure was observed there.
+        return pl.col(filter.column).is_in(
+            [_coerce_temporal_value(v, dtype) for v in filter.value]
+        )
     elif filter.operator == "not in":
-        return ~pl.col(filter.column).is_in(filter.value)
+        return ~pl.col(filter.column).is_in(
+            [_coerce_temporal_value(v, dtype) for v in filter.value]
+        )
     elif filter.operator == "is null":
         return pl.col(filter.column).is_null()
     elif filter.operator == "is not null":
@@ -318,7 +353,7 @@ class ParquetTable(TableProtocol):
             )
 
         if remaining_filters:
-            filter_expr = _filters_to_expr(remaining_filters)
+            filter_expr = _filters_to_expr(remaining_filters, df.collect_schema())
             if filter_expr is not None:
                 df = df.filter(filter_expr)
 
