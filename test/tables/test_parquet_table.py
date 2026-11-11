@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import polars as pl
 import pytest
 
@@ -249,6 +251,59 @@ class TestParquetTable:
 
         with pytest.raises(ValueError, match="Could not parse"):
             table(filters=[Filter("d", "=", "not-a-date")]).collect()
+
+    @pytest.mark.parametrize(
+        ("filter", "expected_ids"),
+        [
+            # A string with no offset is treated as already being in the
+            # column's fixed-offset timezone (-05:00), not UTC.
+            (Filter("t", "=", "2024-01-01 08:00:00"), [1]),
+            # "Z" (UTC) suffix: datetime.fromisoformat only accepts this on
+            # Python 3.11+ unless normalized first; this project's floor is
+            # 3.10 (pyproject requires-python ">=3.10").
+            (Filter("t", "=", "2024-01-01 13:00:00Z"), [1]),
+            (
+                Filter(
+                    "t",
+                    "in",
+                    ["2024-01-01 08:00:00", "2024-01-01 14:00:00Z"],
+                ),
+                [1, 2],
+            ),
+        ],
+    )
+    def test_read_fixed_offset_timezone_filter_as_string(
+        self,
+        tmp_path: Path,
+        filter: Filter,
+        expected_ids: list[int],
+    ):
+        # Regression test: a column's Datetime timezone isn't always an IANA
+        # name. Writing a pyarrow `timestamp(..., tz="-05:00")` column to
+        # Parquet and reading it back confirms `pl.scan_parquet(...)` reports
+        # the column's timezone as the bare offset string "-05:00", for which
+        # `zoneinfo.ZoneInfo("-05:00")` raises `ZoneInfoNotFoundError` while
+        # just building the filter expression -- i.e. a valid ISO literal
+        # against a valid tz-aware column used to crash before even reading
+        # any data.
+        table_dir = tmp_path / "fixed_offset"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table_path = table_dir / "test.parquet"
+
+        # 2024-01-01 13:00/14:00 UTC, stored as -05:00 (08:00/09:00 local).
+        column = pa.array(
+            [1704114000000000, 1704117600000000], type=pa.timestamp("us", tz="-05:00")
+        )
+        pq.write_table(
+            pa.table({"id": pa.array([1, 2], type=pa.int64()), "t": column}),
+            table_path,
+        )
+
+        table = ParquetTable(name="fixed_offset", uri=str(table_path), partitioning=[])
+
+        result = table(filters=[filter]).collect()
+
+        assert sorted(result["id"].to_list()) == expected_ids
 
     @pytest.mark.parametrize(
         (

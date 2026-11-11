@@ -1,9 +1,10 @@
 # mypy: disable-error-code=override
 
 import datetime
+import re
 from os import path
 from typing import Any, Optional, Sequence
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import boto3
 import polars as pl
@@ -67,6 +68,72 @@ def pl_any(exprs: Sequence[pl.Expr]) -> pl.Expr:
     return result
 
 
+_FIXED_OFFSET_RE = re.compile(r"^(?P<sign>[+-])(?P<hours>\d{2}):(?P<minutes>\d{2})$")
+
+
+def _parse_iso_datetime(value: str) -> datetime.datetime:
+    """Parse an ISO 8601 datetime string the same way on every supported Python.
+
+    ``datetime.fromisoformat`` only accepts a trailing ``Z`` (UTC) suffix on
+    Python 3.11+; on the 3.10 floor this project supports (``pyproject.toml``
+    sets ``requires-python = ">=3.10"``), ``"2024-01-01T13:00:00Z"`` raises
+    ``ValueError`` (confirmed on 3.10.12), while the exact same string parses
+    on 3.12. Normalize the suffix first so both floors accept it. A date-only
+    string (no time part, e.g. ``"2024-01-01"``) is accepted by
+    ``fromisoformat`` as midnight on every supported version; no normalization
+    is needed for that case.
+    """
+    if value.endswith(("Z", "z")):
+        value = value[:-1] + "+00:00"
+    return datetime.datetime.fromisoformat(value)
+
+
+def _resolve_timezone(tz_str: str) -> datetime.tzinfo:
+    """Resolve a polars Datetime dtype's ``time_zone`` string to a ``tzinfo``.
+
+    Most columns carry an IANA zone name (``"UTC"``, ``"America/New_York"``),
+    which ``ZoneInfo`` resolves directly. But a Parquet timestamp's zone can
+    also be stored as a bare fixed UTC offset (``"-05:00"``, ``"+05:30"``):
+    confirmed by writing a `pa.timestamp("us", tz="-05:00")` column to Parquet
+    and reading it back with ``pl.scan_parquet`` for a non-zero offset
+    (``"+00:00"`` itself is normalized to ``"UTC"`` by polars, but other
+    offsets are not). ``ZoneInfo`` has no IANA key for those and raises
+    ``ZoneInfoNotFoundError``; parse the offset directly instead.
+    """
+    try:
+        return ZoneInfo(tz_str)
+    except ZoneInfoNotFoundError:
+        match = _FIXED_OFFSET_RE.match(tz_str)
+        if match is None:
+            raise
+        sign = 1 if match["sign"] == "+" else -1
+        hours, minutes = int(match["hours"]), int(match["minutes"])
+        if minutes == 0:
+            # A whole-hour offset like this is itself renamed to the matching
+            # Etc/GMT zone once a LazyFrame scanning such a column is
+            # materialized: confirmed by round-tripping a
+            # `pa.timestamp(..., tz="-05:00")` column through Parquet, where
+            # `pl.scan_parquet(...).collect_schema()` reports "-05:00" but
+            # `.collect()` reports "Etc/GMT+5". A plain `datetime.timezone`
+            # offset here matches the pre-collect schema but not the
+            # materialized one, and polars raises `ComputeError: unable to
+            # parse time zone: 'UTC-05:00'` once the filter actually runs
+            # against the real data (confirmed with the same repro). Use the
+            # same Etc/GMT zone polars will materialize so the literal
+            # doesn't disagree with it. Etc/GMT's sign convention is inverted
+            # relative to ISO offsets (Etc/GMT+5 is UTC-05:00).
+            return ZoneInfo(f"Etc/GMT{'-' if sign > 0 else '+'}{hours}")
+        # A non-whole-hour fixed offset (e.g. "+05:30") has no Etc/GMT
+        # equivalent, but separately confirmed that polars can't materialize
+        # such a column via pl.scan_parquet at all in this version (a plain,
+        # unfiltered `.collect()` already raises the same `ComputeError`), so
+        # this table can't be read regardless of the filter. Fall back to a
+        # plain offset so at least building the expression here doesn't add
+        # its own `ZoneInfoNotFoundError` on top of that pre-existing limit.
+        offset = datetime.timedelta(hours=hours, minutes=minutes)
+        return datetime.timezone(sign * offset)
+
+
 def _coerce_temporal_value(value: Any, dtype: pl.DataType | None) -> Any:
     """Parse an ISO date/datetime string so it can be compared to a Date/Datetime column.
 
@@ -97,11 +164,12 @@ def _coerce_temporal_value(value: Any, dtype: pl.DataType | None) -> Any:
             ) from e
     elif isinstance(dtype, pl.Datetime):
         try:
-            parsed = datetime.datetime.fromisoformat(value)
+            parsed = _parse_iso_datetime(value)
         except ValueError as e:
             raise ValueError(
                 f"Could not parse {value!r} as a datetime (expected ISO 8601, "
-                f"e.g. '2024-01-01 13:00:00' or '2024-01-01 13:00:00+00:00'): {e}"
+                f"e.g. '2024-01-01 13:00:00', '2024-01-01 13:00:00+00:00', or "
+                f"'2024-01-01T13:00:00Z'): {e}"
             ) from e
         if dtype.time_zone is None:
             if parsed.tzinfo is not None:
@@ -109,7 +177,7 @@ def _coerce_temporal_value(value: Any, dtype: pl.DataType | None) -> Any:
                 # literal that can't be compared to this naive column.
                 parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
         else:
-            target_tz = ZoneInfo(dtype.time_zone)
+            target_tz = _resolve_timezone(dtype.time_zone)
             if parsed.tzinfo is None:
                 # No offset in the value: treat it as already being in the
                 # column's timezone, rather than guessing it means UTC.
