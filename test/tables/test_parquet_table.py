@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import polars as pl
@@ -178,6 +178,77 @@ class TestParquetTable:
         result = partitioned_parquet_table(filters=[filter]).collect()
 
         assert sorted(result["implant_id"].unique().to_list()) == expected_implant_ids
+
+    @pytest.mark.parametrize(
+        ("filter", "expected_ids"),
+        [
+            # Date column
+            (Filter("d", "=", "2024-01-01"), [1]),
+            # Naive Datetime column, matching naive string
+            (Filter("t_naive", "=", "2024-01-01 13:00:00"), [1]),
+            # Naive Datetime column, tz-aware string with a non-UTC offset: the
+            # offset is applied (converted to UTC) instead of leaving a
+            # mismatched tz-aware literal against this naive column.
+            (Filter("t_naive", "=", "2024-01-01 08:00:00-05:00"), [1]),
+            # tz-aware (UTC) Datetime column, naive string: treated as already
+            # being in the column's timezone rather than guessed as UTC.
+            (Filter("t_utc", "=", "2024-01-01 13:00:00"), [1]),
+            # tz-aware (UTC) Datetime column, date-only string: parsed as
+            # midnight in the column's timezone, so it does not match the 13:00 row.
+            (Filter("t_utc", "=", "2024-01-01"), []),
+        ],
+    )
+    def test_read_temporal_filter_as_string(
+        self,
+        tmp_path: Path,
+        filter: Filter,
+        expected_ids: list[int],
+    ):
+        # Regression test for the timezone-handling gap in the fix above: the
+        # string value's own timezone-awareness (or lack of it) must be
+        # reconciled with the column's, the way DataFusion applies a UTC offset
+        # (see the comment on value_to_sql_expr in util.py), rather than
+        # leaving a tz-aware/naive mismatch that polars rejects with
+        # `SchemaError` even after the string is parsed.
+        table_dir = tmp_path / "temporal"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table_path = table_dir / "test.parquet"
+
+        pl.DataFrame(
+            {
+                "id": [1, 2],
+                "d": [date(2024, 1, 1), date(2024, 1, 2)],
+                "t_naive": [
+                    datetime(2024, 1, 1, 13, 0, 0),
+                    datetime(2024, 1, 2, 13, 0, 0),
+                ],
+                "t_utc": [
+                    datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc),
+                    datetime(2024, 1, 2, 13, 0, 0, tzinfo=timezone.utc),
+                ],
+            }
+        ).write_parquet(table_path)
+
+        table = ParquetTable(name="temporal", uri=str(table_path), partitioning=[])
+
+        result = table(filters=[filter]).collect()
+
+        assert sorted(result["id"].to_list()) == expected_ids
+
+    def test_read_temporal_filter_as_string_invalid_raises(self, tmp_path: Path):
+        # A non-ISO string must raise a clear ValueError while building the
+        # filter expression, not a raw stdlib ValueError from fromisoformat.
+        table_dir = tmp_path / "temporal_invalid"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table_path = table_dir / "test.parquet"
+
+        pl.DataFrame({"id": [1], "d": [date(2024, 1, 1)]}).write_parquet(table_path)
+        table = ParquetTable(
+            name="temporal_invalid", uri=str(table_path), partitioning=[]
+        )
+
+        with pytest.raises(ValueError, match="Could not parse"):
+            table(filters=[Filter("d", "=", "not-a-date")]).collect()
 
     @pytest.mark.parametrize(
         (

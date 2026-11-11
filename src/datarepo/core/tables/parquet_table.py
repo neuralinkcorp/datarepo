@@ -3,6 +3,7 @@
 import datetime
 from os import path
 from typing import Any, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 import boto3
 import polars as pl
@@ -70,18 +71,52 @@ def _coerce_temporal_value(value: Any, dtype: pl.DataType | None) -> Any:
     """Parse an ISO date/datetime string so it can be compared to a Date/Datetime column.
 
     DataFusion (used for ``DeltalakeTable`` filters, see ``value_to_sql_expr`` in
-    util.py) auto-casts a quoted date/timestamp string literal to the column's
-    type, so ``Filter("date_col", "=", "2024-01-01")`` works there. Polars does
-    not: comparing a Date/Datetime column directly to a plain string raises
-    ``InvalidOperationError``. Parse the value up front so ParquetTable accepts
-    the same filter values as DeltalakeTable.
+    util.py) casts a quoted date/timestamp string literal to the column's type,
+    "applying any UTC offset in the value" (see the comment there) rather than
+    keeping a mismatched timezone. Polars does neither on its own: comparing a
+    Date/Datetime column directly to a plain string raises
+    ``InvalidOperationError``, and a naive `pl.lit` cast to a tz-aware
+    Datetime column (or vice versa) raises ``SchemaError`` even once parsed, a
+    different failure for the same backend mismatch.
+    ``pl.lit(value).cast(dtype)`` was tried first and rejected: polars' str ->
+    Datetime cast fails outright, even for a value that matches the column's own
+    format (confirmed empirically), so it can't replace the parsing done here.
+    Mirror DataFusion's behavior with plain datetime/zoneinfo arithmetic instead:
+    parse the string, then apply the column's timezone the same way DataFusion
+    does, producing a value polars can compare without a dtype mismatch.
     """
     if not isinstance(value, str):
         return value
     if dtype == pl.Date:
-        return datetime.date.fromisoformat(value)
+        try:
+            return datetime.date.fromisoformat(value)
+        except ValueError as e:
+            raise ValueError(
+                f"Could not parse {value!r} as a date (expected ISO 8601, "
+                f"e.g. '2024-01-01'): {e}"
+            ) from e
     elif isinstance(dtype, pl.Datetime):
-        return datetime.datetime.fromisoformat(value)
+        try:
+            parsed = datetime.datetime.fromisoformat(value)
+        except ValueError as e:
+            raise ValueError(
+                f"Could not parse {value!r} as a datetime (expected ISO 8601, "
+                f"e.g. '2024-01-01 13:00:00' or '2024-01-01 13:00:00+00:00'): {e}"
+            ) from e
+        if dtype.time_zone is None:
+            if parsed.tzinfo is not None:
+                # Apply the value's UTC offset instead of leaving a tz-aware
+                # literal that can't be compared to this naive column.
+                parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        else:
+            target_tz = ZoneInfo(dtype.time_zone)
+            if parsed.tzinfo is None:
+                # No offset in the value: treat it as already being in the
+                # column's timezone, rather than guessing it means UTC.
+                parsed = parsed.replace(tzinfo=target_tz)
+            else:
+                parsed = parsed.astimezone(target_tz)
+        return parsed
     return value
 
 
