@@ -129,10 +129,16 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
         return pl.col(filter.column) <= filter.value
     elif filter.operator == ">=":
         return pl.col(filter.column) >= filter.value
-    elif filter.operator == "in":
-        return pl.col(filter.column).is_in(filter.value)
-    elif filter.operator == "not in":
-        return ~pl.col(filter.column).is_in(filter.value)
+    elif filter.operator in ("in", "not in"):
+        expr = pl.col(filter.column).is_in(filter.value)
+        if isinstance(filter.value, (list, tuple)) and not filter.value:
+            if filter.operator == "not in":
+                # Keep column validation without folding empty is_in, which can
+                # reorder projected columns in Polars 1.13.
+                column = pl.col(filter.column)
+                return column.is_null() | column.is_not_null()
+            expr = expr.fill_null(False)
+        return expr if filter.operator == "in" else ~expr
     elif filter.operator == "is null":
         return pl.col(filter.column).is_null()
     elif filter.operator == "is not null":
@@ -142,10 +148,21 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
     elif filter.operator == "includes":
         return pl.col(filter.column).list.contains(filter.value)
     elif filter.operator == "includes any":
+        if isinstance(filter.value, (list, tuple)) and not filter.value:
+            return (
+                pl.col(filter.column)
+                .list.eval(pl.lit(False))
+                .list.any()
+                .fill_null(False)
+            )
         return pl_any(
             [pl.col(filter.column).list.contains(value) for value in filter.value]
         )
     elif filter.operator == "includes all":
+        if isinstance(filter.value, (list, tuple)) and not filter.value:
+            return (
+                pl.col(filter.column).list.eval(pl.lit(True)).list.all().fill_null(True)
+            )
         return pl_all(
             [pl.col(filter.column).list.contains(value) for value in filter.value]
         )
