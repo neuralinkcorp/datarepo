@@ -1,5 +1,6 @@
 package org.kwf.atlas
 
+import com.russhwolf.settings.Settings
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -17,16 +18,28 @@ private class GitHubFailure(
     message: String
 ) : Exception(message)
 
+/**
+ * Pushes a bounded batch of field observations to the GitHub repository.
+ *
+ * Path: kwf-field-data/captures/{projectId}/{batchId}/
+ * Writes canonical source-observations.json, manifest.json, and valid WGS 84 observations.geojson.
+ * Pending batch is persisted before network work and reused on retry.
+ * Records are acknowledged only after the branch reference is updated successfully.
+ */
 suspend fun pushSnapshot(
     token: String,
-    project: String,
+    projectId: String,
+    projectName: String,
+    projectConfig: ProjectConfig,
     records: List<Observation>,
+    batchId: String,
     onProgress: (String) -> Unit
-) {
+): BatchManifest {
     require(token.isNotBlank()) { "GitHub token is required." }
-    require(records.isNotEmpty()) { "No observations in this project." }
+    require(projectId.isNotBlank()) { "Project ID is required." }
+    require(records.isNotEmpty()) { "No unacknowledged observations to upload." }
     require(records.size <= 100) {
-        "Pilot upload limit: 100 observations per project snapshot."
+        "Batch upload limit: 100 observations per snapshot batch."
     }
 
     val photoCharacters = records.sumOf { record ->
@@ -34,8 +47,12 @@ suspend fun pushSnapshot(
     }
 
     require(photoCharacters <= 8_000_000) {
-        "Pilot upload limit exceeded: photograph payload is too large."
+        "Upload limit exceeded: photograph payload is too large."
     }
+
+    // Validate all records before starting network calls
+    val sourceObservations = records.map { it.toSourceObservation(projectId) }
+    sourceObservations.forEach { SpatialContract.validate(it) }
 
     val client = HttpClient {
         install(ContentNegotiation) {
@@ -86,17 +103,7 @@ suspend fun pushSnapshot(
         val repository = request(HttpMethod.Get, "")
         val branch = repository.string("default_branch")
 
-        val projectFolder = project
-            .lowercase()
-            .replace(Regex("[^a-z0-9_-]+"), "-")
-            .trim('-')
-            .take(80)
-            .ifBlank { "project" }
-
-        val snapshotId = uniqueId()
-        val folder =
-            "kwf-field-data/captures/$projectFolder/$snapshotId"
-
+        val folder = "kwf-field-data/captures/$projectId/$batchId"
         val treeEntries = mutableListOf<JsonObject>()
 
         suspend fun blob(
@@ -121,66 +128,98 @@ suspend fun pushSnapshot(
             }
         }
 
-        onProgress("Uploading observation data…")
+        onProgress("Uploading source observations…")
 
-        val geojson = buildJsonObject {
-            put("type", "FeatureCollection")
-            putJsonArray("features") {
-                records.forEach {
-                    add(it.toFeature("assets"))
+        // 1. Canonical source-observations.json
+        val sourceData = buildJsonObject {
+            putJsonObject("project") {
+                put("id", projectId)
+                put("name", projectName)
+                put("defaultCrs", projectConfig.defaultCrs)
+                put("defaultVcrs", projectConfig.defaultVcrs)
+                projectConfig.studyExtent?.let { extent ->
+                    putJsonArray("studyExtent") {
+                        extent.forEach { add(it) }
+                    }
+                }
+            }
+            putJsonArray("observations") {
+                sourceObservations.forEach { obs ->
+                    add(Json.encodeToJsonElement(obs))
                 }
             }
         }
+        blob("source-observations.json", sourceData.toString(), "utf-8")
 
-        blob("observations.geojson", geojson.toString(), "utf-8")
+        // 2. Valid WGS-84 GeoJSON only when available
+        val wgs84Features = records.mapNotNull { it.toFeatureOrNull("assets") }
+        if (wgs84Features.isNotEmpty()) {
+            val geojson = buildJsonObject {
+                put("type", "FeatureCollection")
+                putJsonArray("features") {
+                    wgs84Features.forEach { add(it) }
+                }
+            }
+            blob("observations.geojson", geojson.toString(), "utf-8")
+        }
 
+        // 3. Types breakdown
         val types = buildJsonArray {
             records
                 .map { it.type to it.subtype }
                 .distinct()
-                .forEach { (type, subtype) ->
+                .forEach { (t, sub) ->
                     add(buildJsonObject {
-                        put("type", type)
-                        put("subtype", subtype)
+                        put("type", t)
+                        put("subtype", sub)
                     })
                 }
         }
-
         blob("types.json", types.toString(), "utf-8")
 
+        // 4. Asset photographs
         var photoCount = 0
         val totalPhotos = records.sumOf { it.photosBase64.size }
+        val assetReferences = mutableListOf<String>()
 
         records.forEach { record ->
             record.photosBase64.forEachIndexed { index, data ->
+                val assetPath = "assets/${record.id}-$index.jpg"
+                assetReferences.add(assetPath)
+
                 onProgress(
                     "Uploading photograph ${++photoCount} of $totalPhotos…"
                 )
 
                 blob(
-                    "assets/${record.id}-$index.jpg",
+                    assetPath,
                     data,
                     "base64"
                 )
             }
         }
 
+        // 5. Batch Manifest
         val manifest = buildJsonObject {
-            put("formatVersion", 1)
-            put("snapshotId", snapshotId)
-            put("project", project)
+            put("schemaVersion", 2)
+            put("projectId", projectId)
+            put("batchId", batchId)
             put("recordCount", records.size)
             put("photoCount", totalPhotos)
             put("createdAtEpochMs", nowMillis())
-            put("coordinateSystem", "EPSG:4326")
-            put("coordinateOrder", "longitude,latitude")
-            put("gcpExport", false)
+            putJsonArray("observationIds") {
+                records.forEach { add(it.id) }
+            }
+            putJsonObject("observationRevisions") {
+                records.forEach { put(it.id, it.revision) }
+            }
+            putJsonArray("assetReferences") {
+                assetReferences.forEach { add(it) }
+            }
         }
-
         blob("manifest.json", manifest.toString(), "utf-8")
 
-        // Retry only branch-update conflicts. Existing repository files
-        // remain in the tree through base_tree.
+        // 6. Commit and update branch reference (no force push)
         repeat(3) { attempt ->
             onProgress("Creating snapshot commit…")
 
@@ -221,7 +260,7 @@ suspend fun pushSnapshot(
                 HttpMethod.Post,
                 "/git/commits",
                 buildJsonObject {
-                    put("message", "Field snapshot $snapshotId")
+                    put("message", "Field snapshot $batchId for project $projectId")
                     put("tree", newTree.string("sha"))
                     putJsonArray("parents") { add(headSha) }
                 }
@@ -237,7 +276,15 @@ suspend fun pushSnapshot(
                     }
                 )
 
-                return
+                // Return completed manifest on successful ref update
+                return BatchManifest(
+                    projectId = projectId,
+                    batchId = batchId,
+                    observationIds = records.map { it.id },
+                    assetReferences = assetReferences,
+                    acknowledgedRevision = commit.string("sha"),
+                    acknowledgedHash = newTree.string("sha")
+                )
             } catch (error: GitHubFailure) {
                 if (
                     error.status !in listOf(409, 422) ||
@@ -249,6 +296,8 @@ suspend fun pushSnapshot(
                 onProgress("Repository changed; retrying commit…")
             }
         }
+
+        error("Branch update failed after retries.")
     } finally {
         client.close()
     }

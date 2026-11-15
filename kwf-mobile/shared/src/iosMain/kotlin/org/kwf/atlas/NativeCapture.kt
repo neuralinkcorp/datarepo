@@ -40,10 +40,16 @@ private class LocationDelegate : NSObject(), CLLocationManagerDelegateProtocol {
 
         onPosition(
             Vertex(
-                longitude,
-                latitude,
-                "phone",
-                location.horizontalAccuracy
+                longitude = longitude,
+                latitude = latitude,
+                source = "platform-derived",
+                accuracyMeters = if (location.horizontalAccuracy >= 0) location.horizontalAccuracy else null,
+                z = if (location.verticalAccuracy >= 0) location.altitude else null,
+                crs = "EPSG:4326",
+                vcrs = "unknown",
+                verticalAccuracyM = if (location.verticalAccuracy >= 0) location.verticalAccuracy else null,
+                capturedAtEpochMs = (location.timestamp.timeIntervalSince1970 * 1000).toLong(),
+                provider = null
             )
         )
 
@@ -111,7 +117,9 @@ private class PhotoDelegate :
 actual fun NativeCapture(
     onPosition: (Vertex) -> Unit,
     onPhoto: (String) -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    showLocation: Boolean,
+    showCamera: Boolean
 ) {
     val locationDelegate = remember { LocationDelegate() }
     val photoDelegate = remember { PhotoDelegate() }
@@ -133,7 +141,7 @@ actual fun NativeCapture(
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
+        if (showLocation) OutlinedButton(
             onClick = {
                 when (manager.authorizationStatus) {
                     kCLAuthorizationStatusNotDetermined ->
@@ -151,7 +159,7 @@ actual fun NativeCapture(
             Text("Phone location")
         }
 
-        OutlinedButton(
+        if (showCamera) OutlinedButton(
             onClick = {
                 if (!UIImagePickerController.isSourceTypeAvailable(
                         UIImagePickerControllerSourceTypeCamera
@@ -188,7 +196,7 @@ actual fun NativeCapture(
                 }
             }
         ) {
-            Text("Take photo")
+            Text("Take photo (low-res preview)")
         }
     }
 }

@@ -1,0 +1,194 @@
+﻿@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
+package org.kwf.atlas
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.ComposeUIViewController
+import kotlinx.cinterop.useContents
+import platform.CoreLocation.*
+import platform.Foundation.*
+import platform.UIKit.*
+import platform.darwin.NSObject
+
+actual fun nowMillis(): Long =
+    (NSDate().timeIntervalSince1970 * 1000).toLong()
+
+fun MainViewController(): UIViewController =
+    ComposeUIViewController { App() }
+
+private class LocationDelegate : NSObject(), CLLocationManagerDelegateProtocol {
+    var onPosition: (Vertex) -> Unit = {}
+    var onError: (String) -> Unit = {}
+
+    override fun locationManager(
+        manager: CLLocationManager,
+        didUpdateLocations: List<*>
+    ) {
+        val location = didUpdateLocations.lastOrNull() as? CLLocation ?: return
+
+        if (location.horizontalAccuracy < 0) {
+            onError("No valid location fix.")
+            return
+        }
+
+        val latitude = location.coordinate.useContents { latitude }
+        val longitude = location.coordinate.useContents { longitude }
+
+        onPosition(
+            Vertex(
+                longitude,
+                latitude,
+                "phone",
+                location.horizontalAccuracy
+            )
+        )
+
+        manager.stopUpdatingLocation()
+    }
+
+    override fun locationManager(
+        manager: CLLocationManager,
+        didFailWithError: NSError
+    ) {
+        manager.stopUpdatingLocation()
+        onError(didFailWithError.localizedDescription)
+    }
+
+    override fun locationManagerDidChangeAuthorization(
+        manager: CLLocationManager
+    ) {
+        when (manager.authorizationStatus) {
+            kCLAuthorizationStatusAuthorizedWhenInUse,
+            kCLAuthorizationStatusAuthorizedAlways ->
+                manager.requestLocation()
+
+            kCLAuthorizationStatusDenied,
+            kCLAuthorizationStatusRestricted ->
+                onError("Location access is denied. Change it in Settings.")
+        }
+    }
+}
+
+private class PhotoDelegate :
+    NSObject(),
+    UIImagePickerControllerDelegateProtocol,
+    UINavigationControllerDelegateProtocol {
+
+    var onPhoto: (String) -> Unit = {}
+    var onError: (String) -> Unit = {}
+
+    override fun imagePickerController(
+        picker: UIImagePickerController,
+        didFinishPickingMediaWithInfo: Map<Any?, *>
+    ) {
+        val image =
+            didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage]
+                as? UIImage
+
+        val data = image?.let { UIImageJPEGRepresentation(it, 0.35) }
+
+        if (data != null) {
+            onPhoto(data.base64EncodedStringWithOptions(0u))
+        } else {
+            onError("Unable to read photograph.")
+        }
+
+        picker.dismissViewControllerAnimated(true, null)
+    }
+
+    override fun imagePickerControllerDidCancel(
+        picker: UIImagePickerController
+    ) {
+        picker.dismissViewControllerAnimated(true, null)
+    }
+}
+
+@Composable
+actual fun NativeCapture(
+    onPosition: (Vertex) -> Unit,
+    onPhoto: (String) -> Unit,
+    onError: (String) -> Unit
+) {
+    val locationDelegate = remember { LocationDelegate() }
+    val photoDelegate = remember { PhotoDelegate() }
+    val manager = remember { CLLocationManager() }
+
+    locationDelegate.onPosition = onPosition
+    locationDelegate.onError = onError
+    photoDelegate.onPhoto = onPhoto
+    photoDelegate.onError = onError
+
+    DisposableEffect(manager) {
+        manager.delegate = locationDelegate
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+
+        onDispose {
+            manager.stopUpdatingLocation()
+            manager.delegate = null
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = {
+                when (manager.authorizationStatus) {
+                    kCLAuthorizationStatusNotDetermined ->
+                        manager.requestWhenInUseAuthorization()
+
+                    kCLAuthorizationStatusAuthorizedWhenInUse,
+                    kCLAuthorizationStatusAuthorizedAlways ->
+                        manager.requestLocation()
+
+                    else ->
+                        onError("Allow location access in iPhone Settings.")
+                }
+            }
+        ) {
+            Text("Phone location")
+        }
+
+        OutlinedButton(
+            onClick = {
+                if (!UIImagePickerController.isSourceTypeAvailable(
+                        UIImagePickerControllerSourceTypeCamera
+                    )
+                ) {
+                    onError("Camera unavailable. Use a physical iPhone.")
+                } else {
+                    val scene = UIApplication.sharedApplication.connectedScenes
+                        .firstOrNull { it is UIWindowScene } as? UIWindowScene
+
+                    var controller = scene?.windows
+                        ?.filterIsInstance<UIWindow>()
+                        ?.firstOrNull { it.isKeyWindow }
+                        ?.rootViewController
+
+                    while (controller?.presentedViewController != null) {
+                        controller = controller.presentedViewController
+                    }
+
+                    if (controller == null) {
+                        onError("Unable to open camera.")
+                    } else {
+                        val picker = UIImagePickerController()
+                        picker.sourceType =
+                            UIImagePickerControllerSourceTypeCamera
+                        picker.delegate = photoDelegate
+
+                        controller.presentViewController(
+                            picker,
+                            true,
+                            null
+                        )
+                    }
+                }
+            }
+        ) {
+            Text("Take photo")
+        }
+    }
+}

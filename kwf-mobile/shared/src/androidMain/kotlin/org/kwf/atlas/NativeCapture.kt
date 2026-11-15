@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,8 +14,11 @@ import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -27,7 +31,9 @@ actual fun nowMillis(): Long = System.currentTimeMillis()
 actual fun NativeCapture(
     onPosition: (Vertex) -> Unit,
     onPhoto: (String) -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    showLocation: Boolean,
+    showCamera: Boolean
 ) {
     val context = LocalContext.current
     val manager = remember {
@@ -36,6 +42,7 @@ actual fun NativeCapture(
 
     val handler = remember { Handler(Looper.getMainLooper()) }
     var listener by remember { mutableStateOf<LocationListener?>(null) }
+    var pendingPoorerFix by remember { mutableStateOf<Vertex?>(null) }
 
     val positionCallback by rememberUpdatedState(onPosition)
     val errorCallback by rememberUpdatedState(onError)
@@ -56,19 +63,48 @@ actual fun NativeCapture(
             }
         }
 
+        val startedAt = System.currentTimeMillis()
+        val selector = BestFixSelector(startedAtEpochMs = startedAt, desiredAccuracyM = 10.0)
+
         val active = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                manager.removeUpdates(this)
-                listener = null
+                val now = System.currentTimeMillis()
+                val vAccuracy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
+                    location.verticalAccuracyMeters.toDouble()
+                } else null
 
-                positionCallback(
-                    Vertex(
-                        longitude = location.longitude,
-                        latitude = location.latitude,
-                        source = "phone",
-                        accuracyMeters = location.accuracy.toDouble()
-                    )
+                val vertex = SourceVertex(
+                    x = location.longitude,
+                    y = location.latitude,
+                    z = if (location.hasAltitude()) location.altitude else null,
+                    crs = "EPSG:4326",
+                    vcrs = "unknown", // Do not assign a vertical reference without API evidence
+                    horizontalAccuracyM = if (location.hasAccuracy()) location.accuracy.toDouble() else null,
+                    verticalAccuracyM = vAccuracy,
+                    source = "gps",
+                    capturedAtEpochMs = location.time,
+                    provider = location.provider
                 )
+
+                val acceptable = selector.offer(vertex, now)
+                if (acceptable != null) {
+                    manager.removeUpdates(this)
+                    listener = null
+                    positionCallback(
+                        Vertex(
+                            longitude = acceptable.x,
+                            latitude = acceptable.y,
+                            source = acceptable.source,
+                            accuracyMeters = acceptable.horizontalAccuracyM,
+                            z = acceptable.z,
+                            crs = acceptable.crs,
+                            vcrs = acceptable.vcrs,
+                            verticalAccuracyM = acceptable.verticalAccuracyM,
+                            capturedAtEpochMs = acceptable.capturedAtEpochMs,
+                            provider = acceptable.provider
+                        )
+                    )
+                }
             }
 
             override fun onProviderEnabled(provider: String) {}
@@ -86,9 +122,10 @@ actual fun NativeCapture(
         listener = active
 
         try {
-            @Suppress("DEPRECATION")
-            manager.requestSingleUpdate(
+            manager.requestLocationUpdates(
                 provider,
+                500L,
+                0f,
                 active,
                 Looper.getMainLooper()
             )
@@ -97,11 +134,27 @@ actual fun NativeCapture(
                 if (listener === active) {
                     manager.removeUpdates(active)
                     listener = null
-                    errorCallback(
-                        "Location timed out. Try outdoors or enter coordinates."
-                    )
+                    val poorer = selector.bestAtTimeout()
+                    if (poorer != null) {
+                        pendingPoorerFix = Vertex(
+                            longitude = poorer.x,
+                            latitude = poorer.y,
+                            source = poorer.source,
+                            accuracyMeters = poorer.horizontalAccuracyM,
+                            z = poorer.z,
+                            crs = poorer.crs,
+                            vcrs = poorer.vcrs,
+                            verticalAccuracyM = poorer.verticalAccuracyM,
+                            capturedAtEpochMs = poorer.capturedAtEpochMs,
+                            provider = poorer.provider
+                        )
+                    } else {
+                        errorCallback(
+                            "Location timed out without an acceptable fix. Try outdoors or enter coordinates."
+                        )
+                    }
                 }
-            }, 30_000)
+            }, 15_000)
         } catch (error: Exception) {
             listener = null
             errorCallback(error.message ?: "Location failed.")
@@ -143,14 +196,44 @@ actual fun NativeCapture(
         }
     }
 
+    // Cancel location subscriptions when leaving the screen
     DisposableEffect(Unit) {
         onDispose {
             listener?.let { manager.removeUpdates(it) }
         }
     }
 
+    if (pendingPoorerFix != null) {
+        val fix = pendingPoorerFix!!
+        val accText = fix.accuracyMeters?.let { "±${it.toInt()} m" } ?: "unknown accuracy"
+        AlertDialog(
+            onDismissRequest = { pendingPoorerFix = null },
+            title = { Text("Accept Poorer Fix?") },
+            text = {
+                Text(
+                    "Desired GPS accuracy is ≤10 m. Timeout returned a fix with $accText accuracy. Accept this position?"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        positionCallback(fix)
+                        pendingPoorerFix = null
+                    }
+                ) {
+                    Text("Accept Fix")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPoorerFix = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
+        if (showLocation) OutlinedButton(
             onClick = {
                 val fine = ContextCompat.checkSelfPermission(
                     context,
@@ -174,8 +257,8 @@ actual fun NativeCapture(
             Text("Phone location")
         }
 
-        OutlinedButton(onClick = { camera.launch(null) }) {
-            Text("Take photo")
+        if (showCamera) OutlinedButton(onClick = { camera.launch(null) }) {
+            Text("Take photo (low-res preview)")
         }
     }
 }

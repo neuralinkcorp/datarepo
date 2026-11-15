@@ -1,0 +1,7 @@
+geopandas>=1.0,<2
+pyarrow>=16,<27
+pyproj>=3.6,<4
+shapely>=2.0,<3
+polars>=1.0,<2
+pytest>=8,<9
+
