@@ -34,7 +34,8 @@ data class Vertex(
     val vcrs: String = "unknown",
     val verticalAccuracyM: Double? = null,
     val capturedAtEpochMs: Long? = null,
-    val provider: String? = null
+    val provider: String? = null,
+    val coordinateEpoch: Double? = null,
 )
 
 @Serializable
@@ -58,7 +59,8 @@ data class Observation(
     val revision: Int = 1,
     val moistureUnit: String? = null,
     val gcpLabel: String? = null,
-    val sourceLabel: String? = null
+    val sourceLabel: String? = null,
+    val updatedAtEpochMs: Long? = null,
 )
 
 expect fun nowMillis(): Long
@@ -92,7 +94,8 @@ fun Vertex.toSourceVertex(): SourceVertex = SourceVertex(
     verticalAccuracyM = verticalAccuracyM,
     source = source,
     capturedAtEpochMs = capturedAtEpochMs,
-    provider = provider
+    provider = provider,
+    coordinateEpoch = coordinateEpoch
 )
 
 fun SourceVertex.toVertex(): Vertex = Vertex(
@@ -105,10 +108,29 @@ fun SourceVertex.toVertex(): Vertex = Vertex(
     vcrs = vcrs,
     verticalAccuracyM = verticalAccuracyM,
     capturedAtEpochMs = capturedAtEpochMs,
-    provider = provider
+    provider = provider,
+    coordinateEpoch = coordinateEpoch
 )
 
-fun Observation.toSourceObservation(currentProjectId: String): SourceObservation {
+fun Observation.toSourceObservation(
+    currentProjectId: String
+): SourceObservation {
+    val sourceVertices = vertices.map { vertex ->
+        val original = vertex.toSourceVertex()
+        if (
+            shape == "Point" &&
+            original.z == null &&
+            elevationMeters != null
+        ) {
+            original.copy(
+                z = elevationMeters,
+                vcrs = verticalDatum.ifBlank { "unknown" }
+            )
+        } else {
+            original
+        }
+    }
+
     return SourceObservation(
         id = id,
         revision = revision,
@@ -116,7 +138,7 @@ fun Observation.toSourceObservation(currentProjectId: String): SourceObservation
         type = type,
         subtype = subtype,
         shape = shape,
-        vertices = vertices.map { it.toSourceVertex() },
+        vertices = sourceVertices,
         notes = notes,
         soilPh = soilPh,
         moisture = moisture,
@@ -124,39 +146,56 @@ fun Observation.toSourceObservation(currentProjectId: String): SourceObservation
         surveyed = surveyed,
         surveyReference = if (surveyReference.isBlank()) null else surveyReference,
         gcpLabel = gcpLabel,
-        sourceLabel = sourceLabel ?: vertices.firstOrNull()?.source
+        sourceLabel = sourceLabel ?: vertices.firstOrNull()?.source,
+        observedAtEpochMs = capturedAtEpochMs,
+        updatedAtEpochMs = updatedAtEpochMs,
+        assets = photosBase64.indices.map { index ->
+            "assets/$id-$index.jpg"
+        }
     )
 }
 
 private fun readRecords(): List<Observation> =
     storage.keys
         .filter { it.startsWith("record:") }
-        .mapNotNull { key ->
-            runCatching {
-                codec.decodeFromString<Observation>(
-                    storage.getString(key, "")
-                )
-            }.getOrNull()
+        .map { key ->
+            codec.decodeFromString<Observation>(
+                storage.getString(key, "")
+            )
         }
         .sortedByDescending { it.capturedAtEpochMs }
 
-private fun saveRecord(record: Observation) {
+private fun saveRecord(record: Observation): Observation {
     val records = readRecords()
+    val previous = records.firstOrNull { it.id == record.id }
 
-    require(records.size < 500) {
+    require(previous != null || records.size < 500) {
         "Pilot limit reached: 500 local records. Back up the dataset."
     }
 
-    val encoded = codec.encodeToString(record)
+    val saved = if (previous == null) {
+        record
+    } else {
+        record.copy(
+            revision = previous.revision + 1,
+            capturedAtEpochMs = previous.capturedAtEpochMs,
+            updatedAtEpochMs = nowMillis()
+        )
+    }
+    val encoded = codec.encodeToString(saved)
     val existingSize = storage.keys
         .filter { it.startsWith("record:") }
         .sumOf { storage.getString(it, "").length.toLong() }
 
-    require(existingSize + encoded.length <= 12_000_000) {
+    val replacedSize = previous?.let {
+        storage.getString("record:${it.id}", "").length.toLong()
+    } ?: 0L
+    require(existingSize - replacedSize + encoded.length <= 12_000_000) {
         "Pilot storage limit reached. Back up the dataset."
     }
 
-    storage.putString("record:${record.id}", encoded)
+    storage.putString("record:${saved.id}", encoded)
+    return saved
 }
 
 /**
@@ -170,7 +209,6 @@ fun Observation.toFeatureOrNull(assetPrefix: String): JsonObject? {
     fun coordinate(vertex: Vertex) = buildJsonArray {
         add(vertex.longitude)
         add(vertex.latitude)
-        vertex.z?.let { add(it) }
     }
 
     val coordinates = when (shape) {
@@ -202,7 +240,9 @@ fun Observation.toFeatureOrNull(assetPrefix: String): JsonObject? {
             put("projectId", projectId)
             put("type", type)
             put("subtype", subtype)
+            put("revision", revision)
             put("capturedAtEpochMs", capturedAtEpochMs)
+            updatedAtEpochMs?.let { put("updatedAtEpochMs", it) }
             put("notes", notes)
             put("surveyed", surveyed)
             put("surveyReference", surveyReference)
@@ -224,6 +264,18 @@ fun Observation.toFeatureOrNull(assetPrefix: String): JsonObject? {
                         it.z?.let { z -> put("z", z) }
                         put("crs", it.crs)
                         put("vcrs", it.vcrs)
+                        it.coordinateEpoch?.let { epoch ->
+                            put("coordinateEpoch", epoch)
+                        }
+                        it.capturedAtEpochMs?.let { timestamp ->
+                            put("capturedAtEpochMs", timestamp)
+                        }
+                        it.verticalAccuracyM?.let { accuracy ->
+                            put("verticalAccuracyM", accuracy)
+                        }
+                        it.provider?.let { provider ->
+                            put("provider", provider)
+                        }
                     })
                 }
             }
@@ -234,106 +286,6 @@ fun Observation.toFeatureOrNull(assetPrefix: String): JsonObject? {
                 }
             }
         }
-    }
-}
-
-private fun validate(record: Observation) {
-    require(record.project.isNotBlank()) { "Project is required." }
-    require(record.type.isNotBlank()) { "Type is required." }
-    require(record.subtype.isNotBlank()) { "Subtype is required." }
-    require(record.vertices.isNotEmpty()) { "At least one coordinate vertex is required." }
-
-    val allWgs84 = record.vertices.all { it.crs == "EPSG:4326" }
-    if (allWgs84) {
-        require(record.vertices.all {
-            it.latitude.isFinite() &&
-            it.longitude.isFinite() &&
-            it.latitude in -90.0..90.0 &&
-            it.longitude in -180.0..180.0
-        }) { "WGS-84 coordinates must be in valid ranges (latitude [-90, 90], longitude [-180, 180])." }
-    } else {
-        require(record.vertices.all {
-            it.latitude.isFinite() && it.longitude.isFinite()
-        }) { "Coordinates must be finite numbers." }
-    }
-
-    val distinct = record.vertices
-        .map { it.longitude to it.latitude }
-        .distinct()
-        .size
-
-    when (record.shape) {
-        "Point" -> require(record.vertices.size == 1) {
-            "A point requires one vertex."
-        }
-
-        "LineString" -> require(distinct >= 2) {
-            "A line requires two distinct vertices."
-        }
-
-        "Polygon" -> require(distinct >= 3) {
-            "An area requires three distinct vertices."
-        }
-
-        else -> error("Unsupported geometry shape.")
-    }
-
-    require(record.vertices.size <= 500) {
-        "Maximum 500 vertices."
-    }
-
-    record.soilPh?.let {
-        require(it.isFinite() && it in 0.0..14.0) {
-            "Soil pH must be between 0 and 14."
-        }
-    }
-
-    record.moisture?.let {
-        require(it.isFinite()) { "Invalid moisture value." }
-        require(!record.moistureUnit.isNullOrBlank()) {
-            "Moisture requires a unit (e.g. %, m³/m³)."
-        }
-    }
-
-    record.elevationMeters?.let {
-        require(it.isFinite() && record.verticalDatum.isNotBlank()) {
-            "Elevation requires a vertical datum / height reference."
-        }
-    }
-
-    if (record.surveyed) {
-        require(record.surveyReference.isNotBlank()) {
-            "Surveyed positions require a survey reference."
-        }
-        require(record.vertices.all { it.source == "manual" || it.source == "survey" }) {
-            "Surveyed positions must retain manual/survey source."
-        }
-    }
-
-    if (record.type.equals("GCP", ignoreCase = true)) {
-        require(record.shape == "Point") { "GCP must be a point." }
-        require(!record.gcpLabel.isNullOrBlank()) { "GCP requires a target label." }
-        if (record.surveyed) {
-            val v = record.vertices.single()
-            require(record.elevationMeters != null || v.z != null) {
-                "Surveyed GCP requires elevation."
-            }
-            val vcrs = if (record.verticalDatum.isNotBlank()) record.verticalDatum else v.vcrs
-            require(vcrs != "unknown") {
-                "Surveyed GCP requires a known height reference."
-            }
-            require(v.accuracyMeters != null && v.verticalAccuracyM != null) {
-                "Surveyed GCP requires horizontal and vertical accuracy."
-            }
-        }
-    }
-
-    require(record.photosBase64.size <= 4) {
-        "Maximum four photographs."
-    }
-
-    require(record.photosBase64.all { it.length <= 1_500_000 }) {
-        "A photograph exceeds this pilot's size limit."
     }
 }
 
@@ -406,17 +358,20 @@ fun App() {
     var manualX by remember { mutableStateOf("") }
     var manualY by remember { mutableStateOf("") }
     var manualZ by remember { mutableStateOf("") }
-    var manualCrs by remember { mutableStateOf("EPSG:4326") }
+    var manualCrs by remember { mutableStateOf(defaultCrs) }
     var manualVcrs by remember { mutableStateOf("unknown") }
     var manualAccuracyM by remember { mutableStateOf("") }
     var manualVAccuracyM by remember { mutableStateOf("") }
 
     var vertices by remember { mutableStateOf(emptyList<Vertex>()) }
+    var observationCapturedAtEpochMs by remember { mutableStateOf<Long?>(null) }
 
     var notes by remember { mutableStateOf("") }
     var soilPh by remember { mutableStateOf("") }
     var moisture by remember { mutableStateOf("") }
     var moistureUnit by remember { mutableStateOf("%") }
+    var customMoistureUnit by remember { mutableStateOf("") }
+    var useCustomMoistureUnit by remember { mutableStateOf(false) }
 
     var surveyed by remember { mutableStateOf(false) }
     var surveyReference by remember { mutableStateOf("") }
@@ -430,9 +385,29 @@ fun App() {
     var token by remember { mutableStateOf("") }
     var uploading by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf("") }
+    val uploadQueue = remember { UploadQueue() }
+    var pendingUploadBatch by remember {
+        mutableStateOf<PendingUploadBatch?>(null)
+    }
+    var pendingBatchLoadError by remember { mutableStateOf<String?>(null) }
+    var pendingBatchLoaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(projectId) {
+        pendingBatchLoaded = false
+        try {
+            pendingUploadBatch = uploadQueue.pending(projectId)
+            pendingBatchLoadError = null
+        } catch (error: Exception) {
+            pendingBatchLoadError =
+                error.message ?: "Pending upload batch could not be read."
+        } finally {
+            pendingBatchLoaded = true
+        }
+    }
 
     var query by remember { mutableStateOf("") }
     var selectedRecord by remember { mutableStateOf<Observation?>(null) }
+    var editingObservation by remember { mutableStateOf<Observation?>(null) }
 
     fun notify(text: String) {
         scope.launch { snackbars.showSnackbar(text) }
@@ -447,40 +422,59 @@ fun App() {
     fun parseStudyExtent(text: String): List<Double>? {
         if (text.isBlank()) return null
         val parts = text.split(",").map { it.trim().toDoubleOrNull() }
-        if (parts.size == 4 && parts.all { it != null && it.isFinite() }) {
-            return parts.filterNotNull()
+        require(parts.size == 4 && parts.all { it != null && it.isFinite() }) {
+            "Study extent requires four finite values: west,south,east,north."
         }
-        return null
+        val extent = parts.filterNotNull()
+        require(
+            extent[0] in -180.0..180.0 &&
+                extent[2] in -180.0..180.0 &&
+                extent[1] in -90.0..90.0 &&
+                extent[3] in -90.0..90.0 &&
+                extent[0] < extent[2] &&
+                extent[1] < extent[3]
+        ) { "Study extent must be an ordered WGS 84 bounding box." }
+        return extent
     }
 
+    val parsedStudyExtent = runCatching { parseStudyExtent(studyExtentText) }
+    val studyExtentError = parsedStudyExtent.exceptionOrNull()?.message
     val currentProjectConfig = ProjectConfig(
         id = projectId,
         name = project.trim(),
         defaultCrs = defaultCrs,
         defaultVcrs = defaultVcrs,
-        studyExtent = parseStudyExtent(studyExtentText),
+        studyExtent = parsedStudyExtent.getOrNull(),
         types = projectTypes
     )
 
     fun draft(): Observation = Observation(
-        id = uniqueId(),
-        projectId = projectId,
-        project = project.trim(),
+        id = editingObservation?.id ?: uniqueId(),
+        projectId = editingObservation?.projectId?.ifBlank { projectId } ?: projectId,
+        project = editingObservation?.project ?: project.trim(),
         type = type.trim(),
         subtype = subtype.trim(),
         shape = shape,
         vertices = vertices,
-        capturedAtEpochMs = nowMillis(),
+        capturedAtEpochMs = observationCapturedAtEpochMs
+            ?: vertices.firstOrNull()?.capturedAtEpochMs
+            ?: editingObservation?.capturedAtEpochMs
+            ?: nowMillis(),
         notes = notes,
         soilPh = parsedNumber(soilPh, "Soil pH"),
         moisture = parsedNumber(moisture, "Moisture"),
-        moistureUnit = if (moisture.isNotBlank()) moistureUnit.trim() else null,
+        moistureUnit = if (moisture.isNotBlank()) {
+            if (useCustomMoistureUnit) customMoistureUnit.trim()
+            else moistureUnit
+        } else null,
         surveyed = surveyed,
         surveyReference = surveyReference.trim(),
         elevationMeters = parsedNumber(elevation, "Elevation"),
         verticalDatum = datum.trim(),
         photosBase64 = photos,
-        gcpLabel = if (type.equals("GCP", ignoreCase = true)) gcpLabel.trim() else null
+        gcpLabel = if (type.equals("GCP", ignoreCase = true)) gcpLabel.trim() else null,
+        revision = editingObservation?.revision ?: 1,
+        updatedAtEpochMs = editingObservation?.updatedAtEpochMs
     )
 
     fun attempt(action: () -> Unit) {
@@ -498,10 +492,14 @@ fun App() {
             require(vertices.size < 500) { "Maximum 500 vertices." }
             vertices = vertices + vertex
         }
+        if (observationCapturedAtEpochMs == null) {
+            observationCapturedAtEpochMs = vertex.capturedAtEpochMs ?: nowMillis()
+        }
     }
 
     fun resetDraft() {
         vertices = emptyList()
+        observationCapturedAtEpochMs = null
         photos = emptyList()
         manualX = ""
         manualY = ""
@@ -510,12 +508,47 @@ fun App() {
         soilPh = ""
         moisture = ""
         moistureUnit = "%"
+        customMoistureUnit = ""
+        useCustomMoistureUnit = false
         surveyReference = ""
         elevation = ""
         datum = "unknown"
         gcpLabel = ""
         surveyed = false
+        editingObservation = null
         step = 0
+    }
+
+    fun beginEditing(record: Observation) {
+        editingObservation = record
+        type = record.type
+        subtype = record.subtype
+        shape = record.shape
+        gcpLabel = record.gcpLabel.orEmpty()
+        vertices = record.vertices
+        observationCapturedAtEpochMs = record.capturedAtEpochMs
+        notes = record.notes
+        soilPh = record.soilPh?.toString().orEmpty()
+        moisture = record.moisture?.toString().orEmpty()
+        val knownMoistureUnits = setOf("%", "m³/m³", "cb")
+        useCustomMoistureUnit =
+            record.moistureUnit != null && record.moistureUnit !in knownMoistureUnits
+        moistureUnit = record.moistureUnit
+            ?.takeIf { it in knownMoistureUnits } ?: "%"
+        customMoistureUnit = if (useCustomMoistureUnit) {
+            record.moistureUnit.orEmpty()
+        } else {
+            ""
+        }
+        surveyed = record.surveyed
+        surveyReference = record.surveyReference
+        elevation = record.elevationMeters?.toString().orEmpty()
+        datum = record.verticalDatum
+        photos = record.photosBase64
+        manualCrs = record.vertices.firstOrNull()?.crs ?: defaultCrs
+        step = 0
+        selectedRecord = null
+        screen = "capture"
     }
 
     val projectRecords = records.filter {
@@ -630,6 +663,7 @@ fun App() {
                                 defaultCrs,
                                 {
                                     defaultCrs = it.trim()
+                                    if (vertices.isEmpty()) manualCrs = defaultCrs
                                     storage.putString("project_default_crs", defaultCrs)
                                 },
                                 "Default Horizontal CRS (e.g. EPSG:4326)"
@@ -642,6 +676,9 @@ fun App() {
                                 },
                                 "Study Extent [minLon, minLat, maxLon, maxLat] · optional"
                             )
+                            studyExtentError?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error)
+                            }
                             Text(
                                 "${projectRecords.size} observations saved",
                                 style = MaterialTheme.typography.bodySmall
@@ -981,7 +1018,7 @@ fun App() {
                                     Text("Photographs (Low-Resolution Preview)",
                                         style = MaterialTheme.typography.titleMedium)
                                     Text(
-                                        "Low-resolution inline photo capture for field validation. Large raw imagery is not stored in Git.",
+                                        "Pilot limitation: camera capture stores low-resolution previews in preference-backed storage. Full-resolution capture and file/database storage are not implemented.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = colors.onSurfaceVariant
                                     )
@@ -1020,11 +1057,31 @@ fun App() {
                                         AtlasField(soilPh, { soilPh = it }, "Soil pH (0–14)")
                                         AtlasField(moisture, { moisture = it }, "Moisture value")
                                         if (moisture.isNotBlank()) {
-                                            AtlasField(
-                                                moistureUnit,
-                                                { moistureUnit = it },
-                                                "Moisture unit (e.g. %, m³/m³, cb) · required"
-                                            )
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                listOf("%", "m³/m³", "cb").forEach { unit ->
+                                                    FilterChip(
+                                                        selected = !useCustomMoistureUnit &&
+                                                            moistureUnit == unit,
+                                                        onClick = {
+                                                            moistureUnit = unit
+                                                            useCustomMoistureUnit = false
+                                                        },
+                                                        label = { Text(unit) }
+                                                    )
+                                                }
+                                                FilterChip(
+                                                    selected = useCustomMoistureUnit,
+                                                    onClick = { useCustomMoistureUnit = true },
+                                                    label = { Text("Custom unit…") }
+                                                )
+                                            }
+                                            if (useCustomMoistureUnit) {
+                                                AtlasField(
+                                                    customMoistureUnit,
+                                                    { customMoistureUnit = it.take(40) },
+                                                    "Custom moisture unit · required"
+                                                )
+                                            }
                                         }
                                     } else {
                                         TextButton(onClick = { type = "Soil" }) {
@@ -1063,8 +1120,15 @@ fun App() {
                                 Button(
                                     onClick = {
                                         attempt {
+                                            require(studyExtentError == null) {
+                                                studyExtentError
+                                                    ?: "Invalid project study extent."
+                                            }
                                             val record = draft()
-                                            validate(record)
+                                            SpatialContract.validate(
+                                                record,
+                                                currentProjectConfig
+                                            )
                                             saveRecord(record)
                                             records = readRecords()
                                             resetDraft()
@@ -1114,7 +1178,16 @@ fun App() {
                                                     "At least one coordinate vertex must be captured."
                                                 }
                                             }
-                                            if (step >= 1) validate(draft())
+                                            if (step >= 1) {
+                                                require(studyExtentError == null) {
+                                                    studyExtentError
+                                                        ?: "Invalid project study extent."
+                                                }
+                                                SpatialContract.validate(
+                                                    draft(),
+                                                    currentProjectConfig
+                                                )
+                                            }
                                             step++
                                         }
                                     },
@@ -1173,9 +1246,19 @@ fun App() {
                             "Upload bounded batches of new or modified observations to GitHub."
                         )
 
-                        val unacknowledgedRecords = projectRecords.filter { record ->
-                            val ackRev = storage.getInt("ack_rev_${record.id}", 0)
-                            record.revision > ackRev
+                        val unacknowledgedRecords = remember(records, projectId, project) {
+                            records.filter { record ->
+                                val belongsToProject =
+                                    (record.projectId.isNotBlank() &&
+                                        record.projectId == projectId) ||
+                                        (record.projectId.isBlank() &&
+                                            record.project == project.trim())
+                                belongsToProject && uploadQueue.needsUpload(
+                                    projectId,
+                                    record,
+                                    observationContentHash(record)
+                                )
+                            }
                         }
 
                         AtlasCard {
@@ -1183,11 +1266,16 @@ fun App() {
                             AtlasSummary("Project ID", projectId)
                             AtlasSummary("Upload path", "kwf-field-data/captures/$projectId/{batchId}/")
                             AtlasSummary("Total project records", projectRecords.size.toString())
-                            AtlasSummary("Pending upload", unacknowledgedRecords.size.toString())
+                            AtlasSummary(
+                                "Pending upload",
+                                pendingUploadBatch?.let {
+                                    "${it.records.size} in immutable batch"
+                                } ?: unacknowledgedRecords.size.toString()
+                            )
 
                             Text(
                                 "Observations remain pending until successfully committed to GitHub. " +
-                                "Batches are bounded to ≤100 records and will not re-upload unchanged acknowledged records.",
+                                "Batches are bounded by 50 records and 8 MB; unchanged acknowledged records are skipped.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -1207,11 +1295,16 @@ fun App() {
                                 style = MaterialTheme.typography.bodySmall
                             )
 
-                            val pendingBatchKey = "pending_batch_$projectId"
-                            val pendingBatchId = storage.getString(pendingBatchKey, "")
-                            if (pendingBatchId.isNotBlank()) {
+                            if (pendingBatchLoadError != null) {
                                 Text(
-                                    "A previous batch ($pendingBatchId) is pending. Retrying will reuse this batch ID.",
+                                    "Pending batch error: $pendingBatchLoadError",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            pendingUploadBatch?.let { batch ->
+                                Text(
+                                    "Immutable batch ${batch.batchId} (${batch.records.size} records) is pending; retry uses its saved records and project configuration.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.primary
                                 )
@@ -1219,53 +1312,91 @@ fun App() {
 
                             Button(
                                 enabled = !uploading &&
+                                    pendingBatchLoaded &&
+                                    pendingBatchLoadError == null &&
                                     token.isNotBlank() &&
-                                    unacknowledgedRecords.isNotEmpty(),
+                                    (pendingUploadBatch != null ||
+                                        unacknowledgedRecords.isNotEmpty()),
                                 onClick = {
-                                    val batchRecords = unacknowledgedRecords.take(50)
-                                    val batchId = storage.getString(pendingBatchKey, "").ifBlank {
-                                        val newId = uniqueId()
-                                        storage.putString(pendingBatchKey, newId)
-                                        newId
-                                    }
-
-                                    uploading = true
-                                    uploadStatus = "Preparing batch $batchId…"
-
-                                    scope.launch {
-                                        try {
-                                            val manifest = pushSnapshot(
-                                                token = token,
+                                    try {
+                                        val batch = pendingUploadBatch ?: run {
+                                            require(studyExtentError == null) {
+                                                studyExtentError
+                                                    ?: "Invalid project study extent."
+                                            }
+                                            val selected = mutableListOf<Observation>()
+                                            val hashes = mutableMapOf<String, String>()
+                                            var payloadBytes =
+                                                codec.encodeToString(currentProjectConfig)
+                                                    .encodeToByteArray().size.toLong()
+                                            for (record in unacknowledgedRecords) {
+                                                if (selected.size == 50) break
+                                                val encodedSize =
+                                                    codec.encodeToString(record)
+                                                        .encodeToByteArray().size.toLong()
+                                                if (payloadBytes + encodedSize > 8_000_000L) {
+                                                    continue
+                                                }
+                                                val hash = observationContentHash(record)
+                                                if (!uploadQueue.needsUpload(
+                                                        projectId,
+                                                        record,
+                                                        hash
+                                                    )
+                                                ) continue
+                                                selected += record
+                                                hashes[record.id] = hash
+                                                payloadBytes += encodedSize
+                                            }
+                                            require(selected.isNotEmpty()) {
+                                                "No uploadable observations fit the 50-record, 8 MB batch limit."
+                                            }
+                                            PendingUploadBatch(
+                                                batchId = uniqueId(),
                                                 projectId = projectId,
                                                 projectName = project.trim(),
                                                 projectConfig = currentProjectConfig,
-                                                records = batchRecords,
-                                                batchId = batchId
-                                            ) {
-                                                uploadStatus = it
+                                                records = selected.toList(),
+                                                recordHashes = hashes
+                                            ).also { created ->
+                                                uploadQueue.persist(created)
+                                                pendingUploadBatch = created
                                             }
-
-                                            // Acknowledge records only after branch reference update succeeds
-                                            batchRecords.forEach { record ->
-                                                storage.putInt("ack_rev_${record.id}", record.revision)
-                                            }
-                                            // Clear pending batch ID
-                                            storage.remove(pendingBatchKey)
-
-                                            records = readRecords()
-                                            uploadStatus = "Batch ${manifest.batchId} acknowledged and committed (${manifest.observationIds.size} records)."
-                                            notify("Repository snapshot saved.")
-                                        } catch (error: Exception) {
-                                            uploadStatus = error.message ?: "Upload failed. Batch remains pending."
-                                        } finally {
-                                            uploading = false
                                         }
+
+                                        uploading = true
+                                        uploadStatus = "Preparing batch ${batch.batchId}…"
+                                        scope.launch {
+                                            try {
+                                                val manifest = pushSnapshot(
+                                                    token = token,
+                                                    batch = batch
+                                                ) {
+                                                    uploadStatus = it
+                                                }
+                                                uploadQueue.acknowledge(batch)
+                                                pendingUploadBatch = null
+                                                records = readRecords()
+                                                uploadStatus =
+                                                    "Batch ${manifest.batchId} acknowledged and committed (${manifest.observationIds.size} records)."
+                                                notify("Repository snapshot saved.")
+                                            } catch (error: Exception) {
+                                                uploadStatus = error.message
+                                                    ?: "Upload failed. Batch remains pending."
+                                            } finally {
+                                                uploading = false
+                                            }
+                                        }
+                                    } catch (error: Exception) {
+                                        uploadStatus = error.message
+                                            ?: "Could not prepare upload batch."
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     if (uploading) "Uploading…"
+                                    else if (pendingUploadBatch != null) "Retry saved batch"
                                     else if (unacknowledgedRecords.isEmpty()) "All observations acknowledged"
                                     else "Upload pending batch (${minOf(unacknowledgedRecords.size, 50)})"
                                 )
@@ -1289,7 +1420,7 @@ fun App() {
                                 style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "Records remain on this device until uploaded. " +
-                                "Uninstalling the application or clearing its storage can remove them.",
+                                "Preference-backed storage is pilot-only; uninstalling the app or clearing storage can remove records. File/database storage is not implemented.",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -1380,14 +1511,33 @@ fun App() {
                             Text(record.notes)
                         }
 
-                        val ackRev = storage.getInt("ack_rev_${record.id}", 0)
-                        AtlasSummary("Sync Status", if (record.revision <= ackRev) "Acknowledged (v$ackRev)" else "Pending upload (v${record.revision})")
+                        val acknowledgement = uploadQueue.acknowledgement(
+                            record.projectId.ifBlank { projectId },
+                            record.id
+                        )
+                        val acknowledged = acknowledgement?.let {
+                            it.revision == record.revision &&
+                                it.contentHash == observationContentHash(record)
+                        } == true
+                        AtlasSummary(
+                            "Sync Status",
+                            if (acknowledged) {
+                                "Acknowledged (v${record.revision})"
+                            } else {
+                                "Pending upload (v${record.revision})"
+                            }
+                        )
                         Text("ID: ${record.id}", style = MaterialTheme.typography.labelSmall)
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = { selectedRecord = null }) {
                         Text("Done")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { beginEditing(record) }) {
+                        Text("Edit observation")
                     }
                 }
             )

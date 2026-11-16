@@ -1,8 +1,10 @@
 export interface VertexMetadata {
   source: string;
-  accuracy: number | null;
+  accuracy?: number | null;
+  accuracyMeters?: number | null;
   crs?: string;
   originalCoordinates?: [number, number];
+  [key: string]: unknown;
 }
 
 export interface Asset {
@@ -12,13 +14,21 @@ export interface Asset {
 
 export interface FeatureProperties {
   project: string;
+  projectId?: string;
   type: string;
   subtype: string;
-  observedAt: string;
+  observedAt?: string;
+  observedAtEpochMs?: number;
+  updatedAtEpochMs?: number;
+  capturedAtEpochMs?: number;
+  revision?: number;
+  surveyed?: boolean;
+  sourceCrs?: string;
+  normalizationWarnings?: string[];
   notes?: string;
   soilPh?: number;
   vertexMetadata?: VertexMetadata[];
-  assets?: Asset[];
+  assets?: (Asset | string)[];
   [key: string]: unknown;
 }
 
@@ -47,6 +57,7 @@ export interface ParsedRecord {
     coordinates: number[] | number[][] | number[][][] | number[][][][];
   };
   project: string;
+  projectId: string;
   type: string;
   subtype: string;
   observed: Date | null;

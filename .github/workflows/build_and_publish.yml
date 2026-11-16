@@ -65,7 +65,7 @@ jobs:
 
   build-and-publish:
     needs: [run-tests, code-quality]
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    if: ${{ false }} # KWF has not approved replacing the inherited PyPI publication.
     runs-on: ubuntu-latest
     environment: ci
     steps:
@@ -149,4 +149,3 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
           publish_branch: gh-pages
-          cname: data-repo.io

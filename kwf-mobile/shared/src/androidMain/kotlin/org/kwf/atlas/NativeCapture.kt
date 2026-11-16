@@ -81,7 +81,11 @@ actual fun NativeCapture(
                     vcrs = "unknown", // Do not assign a vertical reference without API evidence
                     horizontalAccuracyM = if (location.hasAccuracy()) location.accuracy.toDouble() else null,
                     verticalAccuracyM = vAccuracy,
-                    source = "gps",
+                    source = when (location.provider) {
+                        LocationManager.GPS_PROVIDER -> "gps"
+                        LocationManager.NETWORK_PROVIDER -> "network"
+                        else -> "unknown"
+                    },
                     capturedAtEpochMs = location.time,
                     provider = location.provider
                 )

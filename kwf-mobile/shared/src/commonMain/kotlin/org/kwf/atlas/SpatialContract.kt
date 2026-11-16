@@ -39,6 +39,7 @@ data class SourceVertex(
     val source: String,
     val capturedAtEpochMs: Long? = null,
     val provider: String? = null,
+    val coordinateEpoch: Double? = null,
 )
 
 /**
@@ -78,6 +79,9 @@ data class SourceObservation(
     val surveyReference: String? = null,
     val gcpLabel: String? = null,
     val sourceLabel: String? = null,
+    val observedAtEpochMs: Long? = null,
+    val updatedAtEpochMs: Long? = null,
+    val assets: List<String> = emptyList(),
 )
 
 /**
@@ -128,22 +132,71 @@ object SpatialContract {
 
     private val crsPattern = Regex("""^[A-Z]+:\d+$""")
 
-    fun validate(observation: SourceObservation) {
+    fun validate(
+        observation: SourceObservation,
+        project: ProjectConfig? = null
+    ) {
         require(observation.id.isNotBlank()) { "Observation ID must not be blank." }
         require(observation.projectId.isNotBlank()) { "Project ID must not be blank." }
+        require(observation.revision >= 1) { "Revision must be positive." }
         require(observation.shape in listOf("Point", "LineString", "Polygon")) {
             "Shape must be Point, LineString, or Polygon."
         }
         require(observation.vertices.isNotEmpty()) { "At least one vertex is required." }
+        require(observation.vertices.size <= 500) {
+            "Maximum 500 vertices."
+        }
+
+        val sourceCrs = observation.vertices.first().crs
+        require(observation.vertices.all { it.crs == sourceCrs }) {
+            "All vertices in one geometry must use the same horizontal CRS."
+        }
+        project?.studyExtent?.let { extent ->
+            require(
+                extent.size == 4 &&
+                    extent.all { it.isFinite() } &&
+                    extent[0] in -180.0..180.0 &&
+                    extent[2] in -180.0..180.0 &&
+                    extent[1] in -90.0..90.0 &&
+                    extent[3] in -90.0..90.0 &&
+                    extent[0] < extent[2] &&
+                    extent[1] < extent[3]
+            ) { "Invalid project study extent." }
+        }
 
         for (vertex in observation.vertices) {
             require(vertex.x.isFinite()) { "Vertex x must be finite." }
             require(vertex.y.isFinite()) { "Vertex y must be finite." }
             vertex.z?.let { require(it.isFinite()) { "Vertex z must be finite." } }
+            vertex.coordinateEpoch?.let {
+                require(it.isFinite()) { "Coordinate epoch must be finite." }
+            }
+            vertex.horizontalAccuracyM?.let {
+                require(it.isFinite() && it >= 0.0) {
+                    "Horizontal accuracy cannot be negative or non-finite."
+                }
+            }
+            vertex.verticalAccuracyM?.let {
+                require(it.isFinite() && it >= 0.0) {
+                    "Vertical accuracy cannot be negative or non-finite."
+                }
+            }
             require(
                 vertex.crs == "EPSG:4326" ||
                 crsPattern.matches(vertex.crs)
             ) { "Invalid horizontal CRS: ${vertex.crs}" }
+            if (vertex.crs == "EPSG:4326") {
+                require(vertex.x in -180.0..180.0 && vertex.y in -90.0..90.0) {
+                    "WGS 84 coordinates must be longitude [-180, 180] and latitude [-90, 90]."
+                }
+                project?.studyExtent?.let { extent ->
+                    require(extent.size == 4) { "Invalid project study extent." }
+                    require(
+                        vertex.x in extent[0]..extent[2] &&
+                            vertex.y in extent[1]..extent[3]
+                    ) { "WGS 84 coordinate is outside the project study extent." }
+                }
+            }
             require(
                 vertex.vcrs == "unknown" ||
                 vertex.vcrs == "ellipsoidal" ||
@@ -212,6 +265,24 @@ object SpatialContract {
                     vertex.verticalAccuracyM != null
                 ) { "Surveyed GCP requires horizontal and vertical accuracy." }
             }
+        }
+    }
+
+    fun validate(record: Observation, project: ProjectConfig) {
+        require(record.project.isNotBlank()) { "Project is required." }
+        require(record.type.isNotBlank()) { "Type is required." }
+        require(record.subtype.isNotBlank()) { "Subtype is required." }
+        validate(record.toSourceObservation(project.id), project)
+        record.elevationMeters?.let {
+            require(it.isFinite() && record.verticalDatum.isNotBlank()) {
+                "Elevation requires a vertical datum / height reference."
+            }
+        }
+        require(record.photosBase64.size <= 4) {
+            "Maximum four photographs."
+        }
+        require(record.photosBase64.all { it.length <= 1_500_000 }) {
+            "A photograph exceeds this pilot's size limit."
         }
     }
 }

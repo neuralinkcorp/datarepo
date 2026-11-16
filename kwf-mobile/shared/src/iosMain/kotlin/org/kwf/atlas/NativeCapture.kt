@@ -3,12 +3,17 @@
 package org.kwf.atlas
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.useContents
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import platform.CoreLocation.*
 import platform.Foundation.*
 import platform.UIKit.*
@@ -23,37 +28,42 @@ fun MainViewController(): UIViewController =
 private class LocationDelegate : NSObject(), CLLocationManagerDelegateProtocol {
     var onPosition: (Vertex) -> Unit = {}
     var onError: (String) -> Unit = {}
+    var onAuthorized: () -> Unit = {}
+    var selector: BestFixSelector? = null
 
     override fun locationManager(
         manager: CLLocationManager,
         didUpdateLocations: List<*>
     ) {
-        val location = didUpdateLocations.lastOrNull() as? CLLocation ?: return
-
-        if (location.horizontalAccuracy < 0) {
-            onError("No valid location fix.")
-            return
-        }
-
-        val latitude = location.coordinate.useContents { latitude }
-        val longitude = location.coordinate.useContents { longitude }
-
-        onPosition(
-            Vertex(
+        val activeSelector = selector ?: return
+        for (location in didUpdateLocations.filterIsInstance<CLLocation>()) {
+            if (location.horizontalAccuracy < 0) continue
+            val latitude = location.coordinate.useContents { latitude }
+            val longitude = location.coordinate.useContents { longitude }
+            val vertex = Vertex(
                 longitude = longitude,
                 latitude = latitude,
                 source = "platform-derived",
-                accuracyMeters = if (location.horizontalAccuracy >= 0) location.horizontalAccuracy else null,
+                accuracyMeters = location.horizontalAccuracy,
                 z = if (location.verticalAccuracy >= 0) location.altitude else null,
                 crs = "EPSG:4326",
                 vcrs = "unknown",
-                verticalAccuracyM = if (location.verticalAccuracy >= 0) location.verticalAccuracy else null,
-                capturedAtEpochMs = (location.timestamp.timeIntervalSince1970 * 1000).toLong(),
+                verticalAccuracyM = if (location.verticalAccuracy >= 0) {
+                    location.verticalAccuracy
+                } else null,
+                capturedAtEpochMs =
+                    (location.timestamp.timeIntervalSince1970 * 1000).toLong(),
                 provider = null
             )
-        )
-
-        manager.stopUpdatingLocation()
+            val acceptable = activeSelector.offer(
+                vertex.toSourceVertex(),
+                nowMillis()
+            ) ?: continue
+            selector = null
+            manager.stopUpdatingLocation()
+            onPosition(acceptable.toVertex())
+            return
+        }
     }
 
     override fun locationManager(
@@ -70,7 +80,7 @@ private class LocationDelegate : NSObject(), CLLocationManagerDelegateProtocol {
         when (manager.authorizationStatus) {
             kCLAuthorizationStatusAuthorizedWhenInUse,
             kCLAuthorizationStatusAuthorizedAlways ->
-                manager.requestLocation()
+                onAuthorized()
 
             kCLAuthorizationStatusDenied,
             kCLAuthorizationStatusRestricted ->
@@ -124,9 +134,49 @@ actual fun NativeCapture(
     val locationDelegate = remember { LocationDelegate() }
     val photoDelegate = remember { PhotoDelegate() }
     val manager = remember { CLLocationManager() }
+    val scope = rememberCoroutineScope()
+    var captureAttempt by remember { mutableStateOf(0) }
+    var captureInProgress by remember { mutableStateOf(false) }
+    var pendingPoorerFix by remember { mutableStateOf<Vertex?>(null) }
 
-    locationDelegate.onPosition = onPosition
+    val positionCallback by rememberUpdatedState(onPosition)
+    val errorCallback by rememberUpdatedState(onError)
+
+    fun startLocationCapture() {
+        manager.stopUpdatingLocation()
+        val selector = BestFixSelector(startedAtEpochMs = nowMillis())
+        locationDelegate.selector = selector
+        captureInProgress = true
+        val attempt = ++captureAttempt
+        manager.startUpdatingLocation()
+        scope.launch {
+            delay(15_000)
+            if (
+                captureAttempt == attempt &&
+                locationDelegate.selector === selector
+            ) {
+                manager.stopUpdatingLocation()
+                locationDelegate.selector = null
+                captureInProgress = false
+                val poorer = selector.bestAtTimeout()
+                if (poorer != null) {
+                    pendingPoorerFix = poorer.toVertex()
+                } else {
+                    errorCallback(
+                        "Location timed out without an acceptable fix. Try outdoors or enter coordinates."
+                    )
+                }
+            }
+        }
+    }
+
+    locationDelegate.onPosition = {
+        captureAttempt += 1
+        captureInProgress = false
+        positionCallback(it)
+    }
     locationDelegate.onError = onError
+    locationDelegate.onAuthorized = { startLocationCapture() }
     photoDelegate.onPhoto = onPhoto
     photoDelegate.onError = onError
 
@@ -135,13 +185,44 @@ actual fun NativeCapture(
         manager.desiredAccuracy = kCLLocationAccuracyBest
 
         onDispose {
+            captureAttempt += 1
+            locationDelegate.selector = null
             manager.stopUpdatingLocation()
             manager.delegate = null
         }
     }
 
+    if (pendingPoorerFix != null) {
+        val fix = pendingPoorerFix!!
+        val accuracy = fix.accuracyMeters
+            ?.let { "±${it.toInt()} m" } ?: "unknown accuracy"
+        AlertDialog(
+            onDismissRequest = { pendingPoorerFix = null },
+            title = { Text("Accept Poorer Fix?") },
+            text = {
+                Text(
+                    "Desired location accuracy is ≤10 m. Timeout returned $accuracy. Accept this position?"
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    positionCallback(fix)
+                    pendingPoorerFix = null
+                }) {
+                    Text("Accept Fix")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPoorerFix = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showLocation) OutlinedButton(
+            enabled = !captureInProgress,
             onClick = {
                 when (manager.authorizationStatus) {
                     kCLAuthorizationStatusNotDetermined ->
@@ -149,14 +230,14 @@ actual fun NativeCapture(
 
                     kCLAuthorizationStatusAuthorizedWhenInUse,
                     kCLAuthorizationStatusAuthorizedAlways ->
-                        manager.requestLocation()
+                        startLocationCapture()
 
                     else ->
                         onError("Allow location access in iPhone Settings.")
                 }
             }
         ) {
-            Text("Phone location")
+            Text(if (captureInProgress) "Waiting for location…" else "Phone location")
         }
 
         if (showCamera) OutlinedButton(

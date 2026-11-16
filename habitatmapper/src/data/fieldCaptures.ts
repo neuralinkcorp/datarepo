@@ -1,0 +1,37 @@
+import { GeoJSONCollection } from "../types";
+
+export const fieldCaptures: GeoJSONCollection = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      id: "dfafe0d378e6ce11a660c5d3ac2b7464",
+      geometry: {
+        type: "Point",
+        coordinates: [23.0, 23.0, 23.0],
+      },
+      properties: {
+        project: "Arkansas Field Survey",
+        projectId: "b34da80d986c51fc1f84b7a9f0222d73",
+        type: "Soil",
+        subtype: "Surface sample",
+        capturedAtEpochMs: 1794791444481,
+        notes: "testing",
+        surveyed: false,
+        surveyReference: "",
+        verticalDatum: "ellipsoidal",
+        vertexMetadata: [
+          {
+            source: "survey",
+            accuracyMeters: 2.0,
+            accuracy: 2.0,
+            z: 23.0,
+            crs: "EPSG:4326",
+            vcrs: "ellipsoidal",
+          },
+        ],
+        assets: ["assets/dfafe0d378e6ce11a660c5d3ac2b7464-0.jpg"],
+      },
+    },
+  ],
+};

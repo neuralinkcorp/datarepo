@@ -6,6 +6,33 @@ interface RecordDetailProps {
   onClose: () => void;
 }
 
+function safeAssetReference(asset: unknown): string | null {
+  const raw = typeof asset === "string"
+    ? asset
+    : asset && typeof asset === "object" && "path" in asset &&
+        typeof asset.path === "string"
+      ? asset.path
+      : null;
+  if (
+    !raw ||
+    raw.startsWith("/") ||
+    raw.includes("\\") ||
+    /^[a-z][a-z\d+.-]*:/i.test(raw)
+  ) return null;
+
+  const segments = raw.split("/");
+  try {
+    if (segments.some((segment) => {
+      const decoded = decodeURIComponent(segment);
+      return !decoded || decoded === "." || decoded === ".." ||
+        decoded.includes("/") || decoded.includes("\\");
+    })) return null;
+  } catch {
+    return null;
+  }
+  return segments.map(encodeURIComponent).join("/");
+}
+
 export default function RecordDetail({ record, onClose }: RecordDetailProps) {
   const { feature, geometry, project, type, subtype, observed, isSurveyed } =
     record;
@@ -113,8 +140,9 @@ export default function RecordDetail({ record, onClose }: RecordDetailProps) {
                   v{i}: {v.source}
                 </span>
                 <span className="text-[10px] font-mono text-slate-300">
-                  {v.accuracy !== null && v.accuracy !== undefined
-                    ? `±${v.accuracy}m`
+                  {(v.accuracyMeters ?? v.accuracy) !== null &&
+                  (v.accuracyMeters ?? v.accuracy) !== undefined
+                    ? `±${v.accuracyMeters ?? v.accuracy}m`
                     : "N/A"}
                 </span>
               </div>
@@ -179,15 +207,31 @@ export default function RecordDetail({ record, onClose }: RecordDetailProps) {
           <span className="text-[10px] text-slate-500 uppercase tracking-wider">
             Assets ({props.assets.length})
           </span>
-          <div className="mt-1.5 space-y-1">
-            {props.assets.map((asset, i) => (
-              <div
-                key={i}
-                className="bg-slate-800/30 rounded px-2 py-1.5 text-[10px] text-slate-400 font-mono"
-              >
-                📷 {asset.path}
-              </div>
-            ))}
+          <div className="mt-1.5 space-y-2">
+            {props.assets.map((asset, index) => {
+              const reference = safeAssetReference(asset);
+              if (!reference) {
+                return (
+                  <p key={index} className="text-[10px] text-amber-300">
+                    Asset reference is invalid or outside field-data.
+                  </p>
+                );
+              }
+              const imageUrl = `${import.meta.env.BASE_URL}field-data/${reference}`;
+              return (
+                <figure key={reference} className="space-y-1">
+                  <img
+                    src={imageUrl}
+                    alt={`Field evidence ${index + 1}`}
+                    loading="lazy"
+                    className="max-h-48 w-full rounded object-contain bg-slate-950"
+                  />
+                  <figcaption className="text-[10px] text-slate-400 font-mono break-all">
+                    {reference}
+                  </figcaption>
+                </figure>
+              );
+            })}
           </div>
         </div>
       )}
@@ -195,9 +239,11 @@ export default function RecordDetail({ record, onClose }: RecordDetailProps) {
       {/* CRS info */}
       <div className="border-t border-slate-700/50 pt-3">
         <p className="text-[10px] text-slate-500 leading-relaxed">
-          Original geometry and CRS are preserved. WGS 84 (EPSG:4326) is used
-          for map display only. This viewer does not certify survey accuracy or
-          GCP suitability.
+          {props.sourceCrs || props.vertexMetadata?.some((vertex) => vertex.crs)
+            ? "Source CRS and coordinate metadata are available. "
+            : "Source CRS metadata is not available. "}
+          WGS 84 (EPSG:4326) is used for map display only. This viewer does not
+          certify survey accuracy or GCP suitability.
         </p>
       </div>
     </div>

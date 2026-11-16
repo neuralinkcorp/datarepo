@@ -1,0 +1,36 @@
+name: KWF geospatial checks
+
+on:
+  pull_request:
+    paths:
+      - "kwf-catalog/**"
+      - "kwf-field-data/captures/**"
+      - ".github/workflows/kwf-geospatial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install geospatial dependencies
+        run: |
+          python -m pip install \
+            -r kwf-catalog/requirements-geospatial.txt
+
+      - name: Check Python syntax
+        run: |
+          python -m compileall kwf-catalog
+
+      - name: Run tests
+        run: |
+          python -m pytest kwf-catalog/test_kwf_geo.py -q

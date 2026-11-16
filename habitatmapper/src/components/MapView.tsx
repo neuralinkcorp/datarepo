@@ -21,6 +21,44 @@ export default function MapView({
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
+  const fitData = () => {
+    const map = mapRef.current;
+    if (!map || records.length === 0) return;
+    const size = map.getSize();
+    if (size.x <= 0 || size.y <= 0) return;
+
+    const positions: L.LatLng[] = [];
+    const collectPositions = (coordinates: unknown) => {
+      if (!Array.isArray(coordinates)) return;
+      if (
+        coordinates.length >= 2 &&
+        typeof coordinates[0] === "number" &&
+        typeof coordinates[1] === "number"
+      ) {
+        positions.push(L.latLng(coordinates[1], coordinates[0]));
+        return;
+      }
+      coordinates.forEach(collectPositions);
+    };
+
+    for (const record of records) {
+      if (record.geometry.type === "Point" && record.geometry.center) {
+        positions.push(L.latLng(...record.geometry.center));
+      } else {
+        collectPositions(record.geometry.coordinates);
+      }
+    }
+
+    const bounds = L.latLngBounds(positions);
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.1), { maxZoom: 15 });
+  };
+
+  const tooltipContent = (record: ParsedRecord): HTMLElement => {
+    const content = document.createElement("span");
+    content.textContent = `${record.type}${record.subtype ? ` — ${record.subtype}` : ""}`;
+    return content;
+  };
+
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -34,10 +72,13 @@ export default function MapView({
     mapRef.current = map;
     layerGroupRef.current = L.layerGroup().addTo(map);
 
-    // Fix map size after mount
-    setTimeout(() => map.invalidateSize(), 100);
+    const sizeTimer = window.setTimeout(() => {
+      map.invalidateSize();
+      fitData();
+    }, 100);
 
     return () => {
+      window.clearTimeout(sizeTimer);
       map.remove();
       mapRef.current = null;
     };
@@ -83,10 +124,7 @@ export default function MapView({
             fillOpacity: 0.9,
           }
         );
-        marker.bindTooltip(
-          `${record.type}${record.subtype ? " — " + record.subtype : ""}`,
-          { direction: "top" }
-        );
+        marker.bindTooltip(tooltipContent(record), { direction: "top" });
         marker.on("click", () => onSelectRecord(record));
         layerGroupRef.current.addLayer(marker);
       }
@@ -99,18 +137,17 @@ export default function MapView({
           weight: isSelected ? 5 : 3,
           opacity: 0.85,
         });
-        polyline.bindTooltip(
-          `${record.type}${record.subtype ? " — " + record.subtype : ""}`,
-          { direction: "top" }
-        );
+        polyline.bindTooltip(tooltipContent(record), { direction: "top" });
         polyline.on("click", () => onSelectRecord(record));
         layerGroupRef.current.addLayer(polyline);
       }
 
       if (geometry.type === "Polygon") {
         const coords = geometry.coordinates as number[][][];
-        const latlngs = coords[0].map(
-          (c) => [c[1], c[0]] as [number, number]
+        const latlngs = coords.map((ring) =>
+          ring.map((coordinate) =>
+            [coordinate[1], coordinate[0]] as [number, number]
+          )
         );
         const polygon = L.polygon(latlngs, {
           color: isSelected ? "#fbbf24" : color,
@@ -118,24 +155,25 @@ export default function MapView({
           fillOpacity: isSelected ? 0.4 : 0.2,
           weight: isSelected ? 3 : 2,
         });
-        polygon.bindTooltip(
-          `${record.type}${record.subtype ? " — " + record.subtype : ""}`,
-          { direction: "top" }
-        );
+        polygon.bindTooltip(tooltipContent(record), { direction: "top" });
         polygon.on("click", () => onSelectRecord(record));
         layerGroupRef.current.addLayer(polygon);
       }
     }
 
-    // Fit bounds if we have records
-    if (records.length > 0) {
-      const allLayers = layerGroupRef.current.getLayers();
-      if (allLayers.length > 0) {
-        const group = L.featureGroup(allLayers as L.Layer[]);
-        mapRef.current.fitBounds(group.getBounds().pad(0.1));
-      }
-    }
   }, [records, selectedRecord, onSelectRecord]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      map.invalidateSize();
+      fitData();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [records]);
 
   return (
     <div className="relative w-full h-full">
@@ -145,6 +183,14 @@ export default function MapView({
           Basemap off — observation shapes rendered on dark background
         </div>
       )}
+      <button
+        type="button"
+        onClick={fitData}
+        disabled={records.length === 0}
+        className="absolute top-3 left-3 z-[1000] rounded bg-slate-900/90 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-40"
+      >
+        Fit data
+      </button>
       {records.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="bg-slate-900/80 text-slate-300 px-6 py-4 rounded-lg backdrop-blur-sm text-center">

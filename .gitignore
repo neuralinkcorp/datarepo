@@ -32,3 +32,10 @@ __pycache__/
 *.jks
 *.keystore
 **/keystore.properties
+
+# Node dependencies
+**/node_modules/
+
+# Generated field data may contain sensitive locations and photographs
+kwf-field-data/derived/
+habitatmapper/public/field-data/

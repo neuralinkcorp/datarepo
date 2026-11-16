@@ -1,188 +1,199 @@
 import { GeoJSONFeature, ParsedRecord } from "./types";
 
-/**
- * Validate that a Point geometry has non-zero, non-null coordinates.
- */
-function validatePointCoordinates(coords: number[]): boolean {
-  if (!Array.isArray(coords) || coords.length < 2) return false;
-  const [lng, lat] = coords;
-  if (lng === 0 && lat === 0) return false;
-  if (typeof lng !== "number" || typeof lat !== "number") return false;
-  if (isNaN(lng) || isNaN(lat)) return false;
-  if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return false;
-  return true;
+type Position = number[];
+
+function isPosition(value: unknown): value is Position {
+  if (!Array.isArray(value) || value.length < 2) return false;
+  if (!value.every((coordinate) =>
+    typeof coordinate === "number" && Number.isFinite(coordinate)
+  )) return false;
+  const [longitude, latitude] = value;
+  return longitude >= -180 && longitude <= 180 &&
+    latitude >= -90 && latitude <= 90;
 }
 
-/**
- * Compute the center of a geometry for map display.
- */
-function computeCenter(
-  geometry: GeoJSONFeature["geometry"]
+function samePosition(left: Position, right: Position): boolean {
+  return left[0] === right[0] && left[1] === right[1];
+}
+
+function geometryCenter(
+  geometry: GeoJSONFeature["geometry"],
+  problems: string[]
 ): [number, number] | null {
-  const { type, coordinates } = geometry;
-
-  if (type === "Point") {
-    const coords = coordinates as number[];
-    if (validatePointCoordinates(coords)) {
-      return [coords[1], coords[0]]; // [lat, lng] for Leaflet
-    }
-    return null;
-  }
-
-  if (type === "LineString") {
-    const coords = coordinates as number[][];
-    if (!coords || coords.length === 0) return null;
-    const mid = Math.floor(coords.length / 2);
-    return [coords[mid][1], coords[mid][0]];
-  }
-
-  if (type === "Polygon") {
-    const coords = coordinates as number[][][];
-    if (!coords || coords.length === 0 || !coords[0] || coords[0].length === 0)
+  const coordinates: unknown = geometry.coordinates;
+  if (geometry.type === "Point") {
+    if (!isPosition(coordinates)) {
+      problems.push("Invalid point coordinates");
       return null;
-    // Compute centroid of first ring
-    let sumLng = 0,
-      sumLat = 0;
-    const ring = coords[0];
-    const n = ring.length - 1; // exclude closing vertex
-    for (let i = 0; i < n; i++) {
-      sumLng += ring[i][0];
-      sumLat += ring[i][1];
     }
-    return [sumLat / n, sumLng / n];
+    if (coordinates[0] === 0 && coordinates[1] === 0) {
+      problems.push("Zero/zero coordinate: verify intent");
+    }
+    return [coordinates[1], coordinates[0]];
   }
 
+  if (geometry.type === "LineString") {
+    if (
+      !Array.isArray(coordinates) ||
+      coordinates.length < 2 ||
+      !coordinates.every(isPosition)
+    ) {
+      problems.push("Line requires at least two valid positions");
+      return null;
+    }
+    const distinct = new Set(
+      coordinates.map((position: Position) => `${position[0]},${position[1]}`)
+    );
+    if (distinct.size < 2) {
+      problems.push("Line requires two distinct vertices");
+      return null;
+    }
+    const middle = coordinates[Math.floor(coordinates.length / 2)] as Position;
+    return [middle[1], middle[0]];
+  }
+
+  if (geometry.type === "Polygon") {
+    if (!Array.isArray(coordinates) || coordinates.length === 0) {
+      problems.push("Polygon requires an outer ring");
+      return null;
+    }
+    let outer: Position[] | null = null;
+    for (const [ringIndex, ring] of coordinates.entries()) {
+      if (!Array.isArray(ring) || ring.length < 4 || !ring.every(isPosition)) {
+        problems.push(`Polygon ring ${ringIndex + 1} has invalid coordinates`);
+        return null;
+      }
+      const positions = ring as Position[];
+      if (!samePosition(positions[0], positions[positions.length - 1])) {
+        problems.push(`Polygon ring ${ringIndex + 1} is not closed`);
+        return null;
+      }
+      const distinct = new Set(
+        positions.slice(0, -1).map((position) => `${position[0]},${position[1]}`)
+      );
+      if (distinct.size < 3) {
+        problems.push(`Polygon ring ${ringIndex + 1} needs three distinct vertices`);
+        return null;
+      }
+      if (ringIndex === 0) outer = positions;
+    }
+
+    if (!outer) return null;
+    const openRing = outer.slice(0, -1);
+    const longitude = openRing.reduce((sum, point) => sum + point[0], 0) /
+      openRing.length;
+    const latitude = openRing.reduce((sum, point) => sum + point[1], 0) /
+      openRing.length;
+    return [latitude, longitude];
+  }
+
+  problems.push(`Unsupported geometry type: ${geometry.type}`);
   return null;
 }
 
-/**
- * Check if a record has surveyed (high-accuracy) position data.
- */
-function checkIsSurveyed(feature: GeoJSONFeature): boolean {
-  const meta = feature.properties?.vertexMetadata;
-  if (!meta || !Array.isArray(meta) || meta.length === 0) return false;
-  return meta.some(
-    (v) =>
-      v.accuracy !== null &&
-      v.accuracy !== undefined &&
-      typeof v.accuracy === "number" &&
-      v.accuracy <= 5.0
-  );
+function surveyed(feature: GeoJSONFeature): boolean {
+  return feature.properties?.surveyed === true;
 }
 
-/**
- * Parse a raw GeoJSON feature into a validated record.
- */
 export function parseRecord(feature: GeoJSONFeature): ParsedRecord {
   const problems: string[] = [];
   const props = feature.properties || {};
-  const geom = feature.geometry;
+  const geometry = feature.geometry;
+  const center = geometry
+    ? geometryCenter(geometry, problems)
+    : (problems.push("Missing geometry"), null);
+  const valid = center !== null;
 
-  // Validate geometry
-  let valid = true;
-  let center: [number, number] | null = null;
-
-  if (!geom || !geom.type) {
-    problems.push("Missing geometry");
-    valid = false;
-  } else {
-    center = computeCenter(geom);
-    if (!center) {
-      problems.push("Invalid or zero coordinates");
-      valid = false;
-    }
-  }
-
-  // Validate observation date
+  const timestamp = props.observedAt ??
+    props.observedAtEpochMs ??
+    props.capturedAtEpochMs;
   let observed: Date | null = null;
-  if (props.observedAt) {
-    const d = new Date(props.observedAt);
-    if (isNaN(d.getTime())) {
+  if (timestamp === undefined || timestamp === null || timestamp === "") {
+    problems.push("Missing observation date");
+  } else {
+    const parsed = new Date(timestamp);
+    if (!Number.isFinite(parsed.getTime())) {
       problems.push("Invalid observation date");
     } else {
-      observed = d;
+      observed = parsed;
     }
-  } else {
-    problems.push("Missing observation date");
   }
 
-  // Validate vertex metadata
-  const meta = props.vertexMetadata;
-  if (!meta || !Array.isArray(meta) || meta.length === 0) {
-    if (geom?.type === "Point") {
+  const metadata = props.vertexMetadata;
+  if (!Array.isArray(metadata) || metadata.length === 0) {
+    if (geometry?.type === "Point") {
       problems.push("No vertex metadata (position source unknown)");
     }
+  } else {
+    metadata.forEach((vertex, index) => {
+      const accuracy = vertex.accuracyMeters ?? vertex.accuracy;
+      if (
+        accuracy !== null &&
+        accuracy !== undefined &&
+        (typeof accuracy !== "number" ||
+          !Number.isFinite(accuracy) ||
+          accuracy < 0)
+      ) {
+        problems.push(`Vertex ${index + 1} has invalid horizontal accuracy`);
+      }
+    });
   }
 
-  const isSurveyed = checkIsSurveyed(feature);
+  if (Array.isArray(props.normalizationWarnings)) {
+    for (const warning of props.normalizationWarnings) {
+      if (typeof warning === "string") problems.push(warning);
+    }
+  }
+
+  const id = typeof feature.id === "string" ? feature.id : "";
+  if (!id) problems.push("Missing permanent record ID");
 
   return {
-    id: feature.id || `feature-${Math.random().toString(36).slice(2, 8)}`,
+    id,
     feature,
     geometry: {
-      type: geom?.type || "Unknown",
+      type: geometry?.type || "Unknown",
       valid,
       center,
-      coordinates: geom?.coordinates || [],
+      coordinates: geometry?.coordinates || [],
     },
-    project: props.project || "Unknown Project",
-    type: props.type || "Unknown",
-    subtype: props.subtype || "",
+    project: typeof props.project === "string" ? props.project : "Unknown Project",
+    projectId: typeof props.projectId === "string"
+      ? props.projectId
+      : (typeof props.project === "string" ? props.project : "unknown"),
+    type: typeof props.type === "string" ? props.type : "Unknown",
+    subtype: typeof props.subtype === "string" ? props.subtype : "",
     observed,
     problems,
-    isSurveyed,
+    isSurveyed: surveyed(feature),
   };
 }
 
-/**
- * Parse all features from a GeoJSON collection.
- */
 export function parseAllRecords(
   features: GeoJSONFeature[]
 ): { valid: ParsedRecord[]; invalid: ParsedRecord[] } {
   const valid: ParsedRecord[] = [];
   const invalid: ParsedRecord[] = [];
-
   for (const feature of features) {
     const record = parseRecord(feature);
-    if (record.geometry.valid && record.problems.length === 0) {
-      valid.push(record);
-    } else if (record.geometry.valid) {
-      // Has valid geometry but metadata issues - still show on map
-      valid.push(record);
-    } else {
-      invalid.push(record);
-    }
+    if (record.geometry.valid) valid.push(record);
+    else invalid.push(record);
   }
-
   return { valid, invalid };
 }
 
-/**
- * Get unique values for a property across records.
- */
 export function getUniqueValues(
   records: ParsedRecord[],
   key: "project" | "type"
 ): string[] {
-  const set = new Set<string>();
-  for (const r of records) {
-    set.add(r[key]);
-  }
-  return Array.from(set).sort();
+  return Array.from(new Set(records.map((record) => record[key]))).sort();
 }
 
-/**
- * Format a date for display.
- */
-export function formatDate(d: Date | null): string {
-  if (!d) return "—";
-  return d.toISOString().replace("T", " ").replace("Z", " UTC");
+export function formatDate(date: Date | null): string {
+  if (!date || !Number.isFinite(date.getTime())) return "—";
+  return date.toISOString().replace("T", " ").replace("Z", " UTC");
 }
 
-/**
- * Get color for a geometry type.
- */
 export function getGeometryColor(type: string): string {
   switch (type) {
     case "Point":
@@ -196,18 +207,15 @@ export function getGeometryColor(type: string): string {
   }
 }
 
-/**
- * Get icon for a record type.
- */
 export function getTypeIcon(type: string): string {
-  const t = type.toLowerCase();
-  if (t.includes("soil")) return "🧪";
-  if (t.includes("vegetation") || t.includes("tree")) return "🌳";
-  if (t.includes("fence")) return "🔗";
-  if (t.includes("water")) return "💧";
-  if (t.includes("habitat")) return "🌿";
-  if (t.includes("land use") || t.includes("pasture")) return "🌾";
-  if (t.includes("structure") || t.includes("building")) return "🏗️";
-  if (t.includes("marker")) return "📍";
+  const normalized = type.toLowerCase();
+  if (normalized.includes("soil")) return "🧪";
+  if (normalized.includes("vegetation") || normalized.includes("tree")) return "🌳";
+  if (normalized.includes("fence")) return "🔗";
+  if (normalized.includes("water")) return "💧";
+  if (normalized.includes("habitat")) return "🌿";
+  if (normalized.includes("land use") || normalized.includes("pasture")) return "🌾";
+  if (normalized.includes("structure") || normalized.includes("building")) return "🏗️";
+  if (normalized.includes("marker")) return "📍";
   return "📌";
 }

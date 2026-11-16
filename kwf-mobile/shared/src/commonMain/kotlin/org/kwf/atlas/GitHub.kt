@@ -1,6 +1,5 @@
 package org.kwf.atlas
 
-import com.russhwolf.settings.Settings
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -8,6 +7,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
 private const val REPOSITORY = "KashmirWorld/datarepo"
@@ -28,31 +28,35 @@ private class GitHubFailure(
  */
 suspend fun pushSnapshot(
     token: String,
-    projectId: String,
-    projectName: String,
-    projectConfig: ProjectConfig,
-    records: List<Observation>,
-    batchId: String,
+    batch: PendingUploadBatch,
     onProgress: (String) -> Unit
 ): BatchManifest {
+    val projectId = batch.projectId
+    val projectName = batch.projectName
+    val projectConfig = batch.projectConfig
+    val records = batch.records
+    val batchId = batch.batchId
     require(token.isNotBlank()) { "GitHub token is required." }
     require(projectId.isNotBlank()) { "Project ID is required." }
     require(records.isNotEmpty()) { "No unacknowledged observations to upload." }
-    require(records.size <= 100) {
-        "Batch upload limit: 100 observations per snapshot batch."
+    require(records.size <= 50) {
+        "Batch upload limit: 50 observations per snapshot batch."
+    }
+    require(Json.encodeToString(batch).encodeToByteArray().size <= 8_000_000) {
+        "Upload limit exceeded: serialized batch is larger than 8 MB."
     }
 
-    val photoCharacters = records.sumOf { record ->
-        record.photosBase64.sumOf { it.length.toLong() }
-    }
-
-    require(photoCharacters <= 8_000_000) {
-        "Upload limit exceeded: photograph payload is too large."
+    require(records.all { record ->
+        batch.recordHashes[record.id] == observationContentHash(record)
+    }) {
+        "Persisted upload batch hash does not match its observation content."
     }
 
     // Validate all records before starting network calls
-    val sourceObservations = records.map { it.toSourceObservation(projectId) }
-    sourceObservations.forEach { SpatialContract.validate(it) }
+    val sourceObservations = records.map {
+        SpatialContract.validate(it, projectConfig)
+        it.toSourceObservation(projectId)
+    }
 
     val client = HttpClient {
         install(ContentNegotiation) {
@@ -96,8 +100,72 @@ suspend fun pushSnapshot(
         return response.body()
     }
 
+    suspend fun existingManifest(branch: String): JsonObject? {
+        val folder = "kwf-field-data/captures/$projectId/$batchId"
+            .split("/")
+            .joinToString("/") { it.encodeURLPathPart() }
+        val encodedBranch = branch
+            .split("/")
+            .joinToString("/") { it.encodeURLPathPart() }
+        val response = client.get(
+            "$API/contents/$folder/manifest.json?ref=$encodedBranch"
+        ) {
+            bearerAuth(token)
+            header(HttpHeaders.Accept, "application/vnd.github.raw+json")
+            header("X-GitHub-Api-Version", "2022-11-28")
+            header(HttpHeaders.UserAgent, "KWF-FieldAtlas")
+        }
+        if (response.status.value == 404) return null
+        if (!response.status.isSuccess()) {
+            throw GitHubFailure(
+                response.status.value,
+                "GitHub ${response.status.value}: unable to inspect pending batch manifest."
+            )
+        }
+        return Json.parseToJsonElement(response.bodyAsText()).jsonObject
+    }
+
     fun JsonObject.string(name: String): String =
         getValue(name).jsonPrimitive.content
+
+    suspend fun reconcileExisting(
+        remote: JsonObject,
+        branch: String
+    ): BatchManifest {
+        val remoteIds = remote["observationIds"]
+            ?.jsonArray?.map { it.jsonPrimitive.content }
+        val remoteRevisions = remote["observationRevisions"]?.jsonObject
+            ?.mapValues { it.value.jsonPrimitive.int }
+        val remoteHashes = remote["observationHashes"]?.jsonObject
+            ?.mapValues { it.value.jsonPrimitive.content }
+        val matches = remote["projectId"]?.jsonPrimitive?.content == projectId &&
+            remote["batchId"]?.jsonPrimitive?.content == batchId &&
+            remoteIds == records.map { it.id } &&
+            remoteRevisions == records.associate { it.id to it.revision } &&
+            remoteHashes == batch.recordHashes
+        if (!matches) {
+            throw IllegalStateException(
+                "Remote batch path already contains different observation content."
+            )
+        }
+        val encodedBranch = branch
+            .split("/")
+            .joinToString("/") { it.encodeURLPathPart() }
+        val reference = request(HttpMethod.Get, "/git/ref/heads/$encodedBranch")
+        return BatchManifest(
+            projectId = projectId,
+            batchId = batchId,
+            observationIds = records.map { it.id },
+            assetReferences = records.flatMap { record ->
+                record.photosBase64.indices.map { index ->
+                    "assets/${record.id}-$index.jpg"
+                }
+            },
+            acknowledgedRevision = reference
+                .getValue("object").jsonObject.string("sha"),
+            acknowledgedHash = "reconciled-existing-manifest"
+        )
+    }
 
     try {
         val repository = request(HttpMethod.Get, "")
@@ -105,6 +173,10 @@ suspend fun pushSnapshot(
 
         val folder = "kwf-field-data/captures/$projectId/$batchId"
         val treeEntries = mutableListOf<JsonObject>()
+
+        existingManifest(branch)?.let { remote ->
+            return reconcileExisting(remote, branch)
+        }
 
         suspend fun blob(
             relativePath: String,
@@ -132,6 +204,9 @@ suspend fun pushSnapshot(
 
         // 1. Canonical source-observations.json
         val sourceData = buildJsonObject {
+            put("formatVersion", 2)
+            put("batchId", batchId)
+            put("createdAtEpochMs", batch.createdAtEpochMs)
             putJsonObject("project") {
                 put("id", projectId)
                 put("name", projectName)
@@ -206,12 +281,15 @@ suspend fun pushSnapshot(
             put("batchId", batchId)
             put("recordCount", records.size)
             put("photoCount", totalPhotos)
-            put("createdAtEpochMs", nowMillis())
+            put("createdAtEpochMs", batch.createdAtEpochMs)
             putJsonArray("observationIds") {
                 records.forEach { add(it.id) }
             }
             putJsonObject("observationRevisions") {
                 records.forEach { put(it.id, it.revision) }
+            }
+            putJsonObject("observationHashes") {
+                records.forEach { put(it.id, batch.recordHashes.getValue(it.id)) }
             }
             putJsonArray("assetReferences") {
                 assetReferences.forEach { add(it) }
@@ -222,6 +300,10 @@ suspend fun pushSnapshot(
         // 6. Commit and update branch reference (no force push)
         repeat(3) { attempt ->
             onProgress("Creating snapshot commit…")
+
+            existingManifest(branch)?.let { remote ->
+                return reconcileExisting(remote, branch)
+            }
 
             val encodedBranch = branch
                 .split("/")

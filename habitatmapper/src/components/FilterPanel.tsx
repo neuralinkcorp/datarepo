@@ -3,7 +3,7 @@ import { FilterState } from "../types";
 interface FilterPanelProps {
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
-  projects: string[];
+  projects: Array<{ id: string; name: string }>;
   types: string[];
   totalCount: number;
   filteredCount: number;
@@ -77,17 +77,17 @@ export default function FilterPanel({
         <div className="space-y-1.5">
           {projects.map((project) => (
             <label
-              key={project}
+              key={project.id}
               className="flex items-center gap-2 cursor-pointer group"
             >
               <input
                 type="checkbox"
-                checked={filters.projects.includes(project)}
-                onChange={() => toggleProject(project)}
+                checked={filters.projects.includes(project.id)}
+                onChange={() => toggleProject(project.id)}
                 className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0"
               />
               <span className="text-xs text-slate-300 group-hover:text-slate-100 truncate">
-                {project}
+                {project.name}
               </span>
             </label>
           ))}

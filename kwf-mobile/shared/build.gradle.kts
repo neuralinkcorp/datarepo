@@ -50,6 +50,10 @@ kotlin {
             implementation("io.ktor:ktor-client-okhttp:3.1.2")
         }
 
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+        }
+
         iosMain.dependencies {
             implementation("io.ktor:ktor-client-darwin:3.1.2")
         }

@@ -1,431 +1,726 @@
 from __future__ import annotations
+
 import argparse
-import json
+import csv
 import hashlib
+import json
+import math
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-try:
-    import geopandas as gpd
-    import pyarrow.parquet as pq
-    import shapely.geometry as sg
-    from pyproj import CRS, Transformer
-    import polars as pl
-    HAS_GEO = True
-except ImportError:
-    HAS_GEO = False
-
-CAPTURES = Path("kwf-field-data/captures")
-DERIVED = Path("kwf-field-data/derived")
+import geopandas as gpd
+import polars as pl
+from pyproj import CRS
+from pyproj.transformer import TransformerGroup
+from shapely.geometry import LineString, MultiPoint, Point, Polygon, mapping, shape
+from shapely.ops import transform as transform_geometry
 
 
-def _require_geo():
-    if not HAS_GEO:
-        raise ImportError("Install requirements-geospatial.txt")
+ROOT = Path(__file__).resolve().parents[1]
+CAPTURES = ROOT / "kwf-field-data" / "captures"
+DERIVED = ROOT / "kwf-field-data" / "derived"
+DATA_ROOT = ROOT / "kwf-field-data"
 
 
-def _stable_hash(obj: dict) -> str:
-    """SHA-256 of canonical JSON."""
+def read_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def write_json(path: Path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def digest(value):
     return hashlib.sha256(
-        json.dumps(obj, sort_keys=True, ensure_ascii=False).encode()
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
     ).hexdigest()
 
 
-def _vertex_to_point(v: dict) -> "sg.Point | None":
-    """Return a WGS-84 Point only if crs is EPSG:4326."""
-    if v.get("crs") != "EPSG:4326":
+def finite(value, label):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a number")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
+    return value
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def epoch_iso(value):
+    if value is None:
         return None
-    x, y = v.get("x"), v.get("y")
-    if x is None or y is None:
-        return None
+    milliseconds = finite(value, "Observation timestamp")
     try:
-        x, y = float(x), float(y)
-    except (TypeError, ValueError):
+        return datetime.fromtimestamp(
+            milliseconds / 1000, timezone.utc
+        ).isoformat()
+    except (OverflowError, OSError, ValueError) as error:
+        raise ValueError("Observation timestamp is out of range") from error
+
+
+def resolve_crs(identifier, project=None):
+    if not isinstance(identifier, str) or not identifier.strip():
+        raise ValueError("Missing CRS")
+    definition = (project or {}).get("crsRegistry", {}).get(
+        identifier, identifier
+    )
+    if isinstance(definition, dict):
+        definition = definition.get("definition")
+    try:
+        return CRS.from_user_input(definition)
+    except Exception as error:
+        raise ValueError(f"Unknown CRS: {identifier}") from error
+
+
+def transformer(source, target):
+    group = TransformerGroup(
+        source, target, always_xy=True, allow_ballpark=False
+    )
+    if not group.best_available:
+        missing = sorted({
+            grid.short_name
+            for operation in group.unavailable_operations
+            for grid in operation.grids
+            if not grid.available
+        })
+        raise ValueError(
+            "Best transformation unavailable. Missing resources: "
+            + ", ".join(missing)
+        )
+    if not group.transformers:
+        raise ValueError(
+            f"No permitted transformation: {source.name} -> {target.name}"
+        )
+    return group.transformers[0]
+
+
+def coordinates_of(geometry):
+    if geometry.geom_type in {"Point", "LineString"}:
+        return list(geometry.coords)
+    if geometry.geom_type == "Polygon":
+        return (
+            list(geometry.exterior.coords)
+            + [coordinate for ring in geometry.interiors for coordinate in ring.coords]
+        )
+    raise ValueError("Supported geometry: Point, LineString, Polygon")
+
+
+def source_geometry(observation, project):
+    vertices = observation.get("vertices")
+    if not isinstance(vertices, list) or not 1 <= len(vertices) <= 1000:
+        raise ValueError("Geometry requires 1–1,000 vertices")
+    identifiers = {vertex.get("crs") for vertex in vertices}
+    if len(identifiers) != 1:
+        raise ValueError("One geometry cannot mix source CRSs")
+    identifier = next(iter(identifiers))
+    crs = resolve_crs(identifier, project)
+    if not (crs.is_projected or crs.is_geographic):
+        raise ValueError("Expected a horizontal CRS")
+    coordinates = [
+        (finite(vertex.get("x"), "x"), finite(vertex.get("y"), "y"))
+        for vertex in vertices
+    ]
+    kind = observation.get("shape")
+    distinct = len(set(coordinates))
+    if kind == "Point":
+        if len(coordinates) != 1:
+            raise ValueError("Point requires one vertex")
+        geometry = Point(coordinates[0])
+    elif kind == "LineString":
+        if distinct < 2:
+            raise ValueError("Line requires two distinct vertices")
+        geometry = LineString(coordinates)
+    elif kind == "Polygon":
+        if distinct < 3:
+            raise ValueError("Polygon requires three distinct vertices")
+        geometry = Polygon(coordinates)
+    else:
+        raise ValueError(f"Unsupported shape: {kind}")
+    if geometry.is_empty or not geometry.is_valid:
+        raise ValueError("Invalid or empty source geometry")
+    for vertex in vertices:
+        if vertex.get("z") is not None:
+            finite(vertex["z"], "z")
+        for key in ("horizontalAccuracyM", "verticalAccuracyM"):
+            if vertex.get(key) is not None and finite(vertex[key], key) < 0:
+                raise ValueError(f"{key} cannot be negative")
+    return geometry, identifier, crs
+
+
+def check_wgs84(geometry):
+    if geometry.is_empty or not geometry.is_valid:
+        raise ValueError("Invalid display geometry")
+    for coordinate in coordinates_of(geometry):
+        x, y = coordinate[:2]
+        if not (
+            math.isfinite(x) and math.isfinite(y)
+            and -180 <= x <= 180 and -90 <= y <= 90
+        ):
+            raise ValueError("Invalid WGS 84 display coordinates")
+
+
+def in_area(x, y, crs):
+    area = crs.area_of_use
+    if area is None:
+        return True
+    longitude_ok = (
+        area.west <= x <= area.east
+        if area.west <= area.east
+        else x >= area.west or x <= area.east
+    )
+    return longitude_ok and area.south <= y <= area.north
+
+
+def study_extent(project):
+    extent = project.get("studyExtent")
+    if extent is None:
         return None
-    if not (-180 <= x <= 180 and -90 <= y <= 90):
-        return None
-    z = v.get("z")
-    if z is not None:
-        try:
-            z = float(z)
-            return sg.Point(x, y, z)
-        except (TypeError, ValueError):
-            pass
-    return sg.Point(x, y)
+    if not isinstance(extent, list) or len(extent) != 4:
+        raise ValueError("Study extent needs west,south,east,north")
+    west, south, east, north = [
+        finite(value, "Study extent") for value in extent
+    ]
+    if not (
+        -180 <= west < east <= 180 and -90 <= south < north <= 90
+    ):
+        raise ValueError("Invalid study extent")
+    return west, south, east, north
 
 
-def _make_geometry(obs: dict) -> "sg.BaseGeometry | None":
-    """Build WGS-84 geometry from vertices, or None if not all EPSG:4326."""
-    _require_geo()
-    vertices = obs.get("vertices", [])
-    shape = obs.get("shape", "Point")
-
-    points = [_vertex_to_point(v) for v in vertices]
-    if any(p is None for p in points):
-        return None  # source-only; pending normalization
-
-    if shape == "Point":
-        return points[0] if points else None
-    elif shape == "LineString":
-        coords = [(p.x, p.y) + ((p.z,) if p.has_z else ()) for p in points]
-        return sg.LineString(coords) if len(coords) >= 2 else None
-    elif shape == "Polygon":
-        coords = [(p.x, p.y) + ((p.z,) if p.has_z else ()) for p in points]
-        if len(set((c[0], c[1]) for c in coords)) >= 3:
-            return sg.Polygon(coords)
-        return None
-    return None
+def safe_asset(snapshot, reference):
+    if not isinstance(reference, str):
+        raise ValueError("Asset references must be strings")
+    candidate = (snapshot.parent / reference).resolve()
+    try:
+        candidate.relative_to(snapshot.parent.resolve())
+    except ValueError as error:
+        raise ValueError("Asset reference leaves its snapshot directory") from error
+    try:
+        relative = candidate.relative_to(DATA_ROOT.resolve())
+    except ValueError:
+        capture_root = next(
+            (parent for parent in snapshot.parents if parent.name == "captures"),
+            None,
+        )
+        if capture_root is None:
+            raise ValueError("Asset reference is outside a captures directory")
+        relative = candidate.relative_to(capture_root.parent)
+    return relative.as_posix()
 
 
-def normalize_observation(obs: dict, project: dict, source_path: Path) -> dict:
-    """
-    Normalize one observation dict to a flat row for GeoParquet.
-    Returns a dict with keys matching the parquet schema.
-    Does NOT invent coordinates, accuracy, or survey status.
-    """
-    _require_geo()
-    obs_id = obs.get("id", "")
-    revision = obs.get("revision", 1)
-    geom = _make_geometry(obs)
-
-    vertices = obs.get("vertices", [])
-    all_wgs84 = all(v.get("crs") == "EPSG:4326" for v in vertices)
-
-    # Bounding box columns (only for WGS-84 observations)
-    min_lon = max_lon = min_lat = max_lat = None
-    if geom is not None and all_wgs84:
-        b = geom.bounds  # (minx, miny, maxx, maxy)
-        min_lon, min_lat, max_lon, max_lat = b[0], b[1], b[2], b[3]
-
-    source_wkb = None
-    if geom is not None:
-        import shapely.wkb as swkb
-        source_wkb = swkb.dumps(geom, include_srid=False)
-
+def legacy_observation(feature, project):
+    properties = feature.get("properties") or {}
+    geometry = shape(feature.get("geometry"))
+    if geometry.geom_type not in {"Point", "LineString", "Polygon"}:
+        raise ValueError("Unsupported legacy geometry")
+    check_wgs84(geometry)
+    if geometry.geom_type == "Polygon" and geometry.interiors:
+        raise ValueError("Legacy polygon holes need explicit migration; not discarded")
+    points = coordinates_of(geometry)
+    if geometry.geom_type == "Polygon":
+        points = points[:-1]
+    metadata = properties.get("vertexMetadata") or []
+    vertices = []
+    for index, coordinate in enumerate(points):
+        item = metadata[index] if index < len(metadata) else {}
+        vertices.append({
+            "x": coordinate[0],
+            "y": coordinate[1],
+            "z": item.get("z", coordinate[2] if len(coordinate) > 2 else None),
+            "crs": "EPSG:4326",
+            "vcrs": item.get("vcrs", "unknown"),
+            "source": item.get("source", "unknown"),
+            "horizontalAccuracyM": item.get(
+                "horizontalAccuracyM",
+                item.get("accuracyMeters", item.get("accuracy")),
+            ),
+            "verticalAccuracyM": item.get("verticalAccuracyM"),
+            "capturedAtEpochMs": item.get("capturedAtEpochMs"),
+            "provider": item.get("provider"),
+        })
+    timestamp = properties.get(
+        "observedAtEpochMs", properties.get("capturedAtEpochMs")
+    )
+    if timestamp is None and properties.get("observedAt"):
+        parsed = datetime.fromisoformat(
+            properties["observedAt"].replace("Z", "+00:00")
+        )
+        if parsed.tzinfo is None:
+            raise ValueError("Legacy observation time has no timezone")
+        timestamp = int(parsed.timestamp() * 1000)
+    record_id = feature.get("id")
+    if not record_id:
+        raise ValueError("Legacy record has no permanent ID")
     return {
-        "id": obs_id,
-        "revision": revision,
-        "project_id": project.get("id", ""),
-        "type": obs.get("type", ""),
-        "subtype": obs.get("subtype", ""),
-        "shape": obs.get("shape", "Point"),
-        "source_label": obs.get("sourceLabel", obs.get("source_label", "")),
-        "notes": obs.get("notes", ""),
-        "soil_ph": obs.get("soilPh", obs.get("soil_ph")),
-        "moisture": obs.get("moisture"),
-        "moisture_unit": obs.get("moistureUnit", obs.get("moisture_unit")),
-        "surveyed": obs.get("surveyed", False),
-        "survey_reference": obs.get("surveyReference", obs.get("survey_reference")),
-        "gcp_label": obs.get("gcpLabel", obs.get("gcp_label")),
-        "pending_normalization": not all_wgs84,
-        "source_path": str(source_path),
-        "geometry": geom,
-        "source_wkb": source_wkb,
-        "min_lon": min_lon,
-        "max_lon": max_lon,
-        "min_lat": min_lat,
-        "max_lat": max_lat,
+        "id": str(record_id),
+        "revision": properties.get("revision", 1),
+        "projectId": properties.get("projectId", project["id"]),
+        "type": properties.get("type", "Unspecified"),
+        "subtype": properties.get("subtype", ""),
+        "shape": geometry.geom_type,
+        "vertices": vertices,
+        "observedAtEpochMs": timestamp,
+        "updatedAtEpochMs": properties.get("updatedAtEpochMs"),
+        "notes": properties.get("notes", ""),
+        "soilPh": properties.get("soilPh"),
+        "moisture": properties.get("moisture"),
+        "moistureUnit": properties.get("moistureUnit"),
+        "surveyed": properties.get("surveyed") is True,
+        "surveyReference": properties.get("surveyReference"),
+        "gcpLabel": properties.get("gcpLabel"),
+        "assets": [
+            item.get("path") if isinstance(item, dict) else item
+            for item in properties.get("assets", [])
+        ],
+        "legacyProperties": properties,
     }
 
 
-def load_latest(root: Path) -> tuple[list[tuple[dict, Path]], dict[str, str]]:
-    """
-    Walk root/**/source-observations.json files.
-    For each observation ID, keep the highest revision.
-    Raise ValueError on conflicting content at the same revision.
-    Returns (rows, hashes) where hashes maps id -> content_hash.
-    """
-    best: dict[str, tuple[int, dict, Path]] = {}
-    hashes: dict[str, str] = {}
-
-    for path in sorted(root.rglob("source-observations.json")):
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-
-        project = data.get("project", {})
-        for obs in data.get("observations", []):
-            obs_id = obs.get("id")
-            if not obs_id:
-                continue
-            rev = obs.get("revision", 1)
-            h = _stable_hash(obs)
-
-            if obs_id in best:
-                existing_rev, existing_obs, existing_path = best[obs_id]
-                if rev == existing_rev:
-                    if hashes.get(obs_id) != h:
-                        raise ValueError(
-                            f"Conflicting revision {rev} for observation {obs_id}: "
-                            f"{existing_path} vs {path}"
-                        )
-                elif rev > existing_rev:
-                    best[obs_id] = (rev, obs, path)
-                    hashes[obs_id] = h
+def load_latest(root=CAPTURES):
+    latest = {}
+    projects = {}
+    problems = []
+    directories = sorted({
+        path.parent
+        for name in ("source-observations.json", "observations.geojson")
+        for path in root.rglob(name)
+    })
+    for directory in directories:
+        source = directory / "source-observations.json"
+        display = directory / "observations.geojson"
+        try:
+            if source.exists():
+                document = read_json(source)
+                project = document.get("project") or {}
+                if not project.get("id"):
+                    raise ValueError("Source snapshot has no project ID")
+                observations = document.get("observations", [])
+                if not isinstance(observations, list):
+                    raise ValueError("Snapshot observations must be a list")
+                if display.exists():
+                    display_document = read_json(display)
+                    if display_document.get("type") == "FeatureCollection":
+                        display_by_id = {
+                            str(feature.get("id")): feature
+                            for feature in display_document.get("features", [])
+                        }
+                        for observation in observations:
+                            feature = display_by_id.get(str(observation.get("id")))
+                            if feature is None:
+                                continue
+                            properties = feature.get("properties") or {}
+                            fallbacks = {
+                                "observedAtEpochMs": properties.get(
+                                    "observedAtEpochMs",
+                                    properties.get("capturedAtEpochMs"),
+                                ),
+                                "updatedAtEpochMs": properties.get(
+                                    "updatedAtEpochMs"
+                                ),
+                                "assets": properties.get("assets"),
+                                "shape": (feature.get("geometry") or {}).get("type"),
+                                "type": properties.get("type"),
+                                "subtype": properties.get("subtype"),
+                                "surveyed": properties.get("surveyed"),
+                                "surveyReference": properties.get("surveyReference"),
+                                "gcpLabel": properties.get("gcpLabel"),
+                                "notes": properties.get("notes"),
+                                "soilPh": properties.get("soilPh"),
+                                "moisture": properties.get("moisture"),
+                                "moistureUnit": properties.get("moistureUnit"),
+                                "sourceLabel": properties.get("sourceLabel"),
+                            }
+                            for key, value in fallbacks.items():
+                                if key not in observation and value is not None:
+                                    observation[key] = value
+                path = source
             else:
-                best[obs_id] = (rev, obs, path)
-                hashes[obs_id] = h
+                document = read_json(display)
+                if document.get("type") != "FeatureCollection":
+                    raise ValueError("Expected FeatureCollection")
+                if document.get("crs"):
+                    raise ValueError("CRS-tagged legacy GeoJSON requires explicit migration")
+                features = document.get("features", [])
+                first = (
+                    (features[0].get("properties") or {})
+                    if features else {}
+                )
+                project = {
+                    "id": first.get("projectId")
+                    or "legacy-folder:" + directory.parent.name,
+                    "name": first.get("project") or directory.parent.name,
+                }
+                observations = [
+                    legacy_observation(feature, project) for feature in features
+                ]
+                path = display
+            projects[project["id"]] = project
+            for observation in observations:
+                record_id = observation.get("id")
+                if not record_id:
+                    raise ValueError("Observation has no ID")
+                if observation.get("projectId", project["id"]) != project["id"]:
+                    raise ValueError("Observation belongs to another project")
+                revision = observation.get("revision", 1)
+                if (
+                    isinstance(revision, bool)
+                    or not isinstance(revision, int)
+                    or revision < 1
+                ):
+                    raise ValueError("Invalid revision")
+                key = (project["id"], str(record_id))
+                content_hash = digest(observation)
+                previous = latest.get(key)
+                if previous is None or revision > previous["revision"]:
+                    latest[key] = {
+                        "revision": revision,
+                        "hash": content_hash,
+                        "observation": observation,
+                        "project": project,
+                        "path": path,
+                    }
+                elif (
+                    revision == previous["revision"]
+                    and content_hash != previous["hash"]
+                ):
+                    raise ValueError(
+                        f"Conflicting equal revision: {key}, revision {revision}"
+                    )
+        except Exception as error:
+            problems.append({"snapshot": str(directory), "problem": str(error)})
+    return list(latest.values()), projects, problems
 
-    rows = [(obs, path) for (_, obs, path) in best.values()]
-    return rows, hashes
 
-
-def normalize_archive(root: Path, output: Path) -> "gpd.GeoDataFrame":
-    """
-    Load all source-observations.json under root, deduplicate by revision,
-    and write observations.parquet with GeoParquet metadata.
-    """
-    _require_geo()
-    import geopandas as gpd
-    import shapely.wkb as swkb
-
-    rows_and_paths, _ = load_latest(root)
-    if not rows_and_paths:
-        # Return empty GeoDataFrame with correct schema
-        gdf = gpd.GeoDataFrame(
-            columns=["id","revision","project_id","type","subtype","shape",
-                     "source_label","notes","soil_ph","moisture","moisture_unit",
-                     "surveyed","survey_reference","gcp_label","pending_normalization",
-                     "source_path","geometry","source_wkb","min_lon","max_lon",
-                     "min_lat","max_lat"],
-            geometry="geometry",
-            crs="EPSG:4326"
-        )
-        output.mkdir(parents=True, exist_ok=True)
-        gdf.to_parquet(output / "observations.parquet")
-        return gdf
-
-    # We need a project dict per observation — read from the file
-    all_rows = []
-    for path in sorted(root.rglob("source-observations.json")):
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        project = data.get("project", {})
-        for obs in data.get("observations", []):
-            all_rows.append((obs, project, path))
-
-    # Deduplicate by observation id keeping highest revision
-    best: dict[str, tuple[int, dict, dict, Path]] = {}
-    for obs, project, path in all_rows:
-        obs_id = obs.get("id")
-        if not obs_id:
-            continue
-        rev = obs.get("revision", 1)
-        h = _stable_hash(obs)
-        if obs_id in best:
-            existing_rev = best[obs_id][0]
-            if rev > existing_rev:
-                best[obs_id] = (rev, obs, project, path)
-        else:
-            best[obs_id] = (rev, obs, project, path)
-
-    normalized = []
-    for rev, obs, project, path in best.values():
-        row = normalize_observation(obs, project, path)
-        normalized.append(row)
-
-    gdf = gpd.GeoDataFrame(normalized, geometry="geometry", crs="EPSG:4326")
-
-    # Ensure source_wkb is bytes
-    gdf["source_wkb"] = gdf["source_wkb"].apply(
-        lambda v: bytes(v) if v is not None else None
+def normalize_observation(observation, project, source_path):
+    original, source_id, source_crs = source_geometry(observation, project)
+    operation = transformer(source_crs, CRS.from_epsg(4326))
+    display = transform_geometry(
+        lambda x, y, z=None: operation.transform(x, y, errcheck=True),
+        original,
     )
+    check_wgs84(display)
+    warnings = []
+    extent = study_extent(project)
+    for x, y, *_ in coordinates_of(display):
+        if not in_area(x, y, source_crs):
+            raise ValueError("Position outside source CRS area of use")
+        if extent:
+            west, south, east, north = extent
+            if not west <= x <= east or not south <= y <= north:
+                warnings.append("Outside project study extent")
+        if x == 0 and y == 0:
+            warnings.append("Zero/zero coordinate: verify intent")
+    properties = {
+        key: value for key, value in observation.items() if key != "vertices"
+    }
+    properties.update({
+        "projectId": project["id"],
+        "project": project.get("name", ""),
+        "sourceCrs": source_id,
+        "vertexMetadata": observation["vertices"],
+        "observedAt": epoch_iso(observation.get("observedAtEpochMs")),
+        "normalizationWarnings": sorted(set(warnings)),
+        "transformDescription": operation.description,
+        "assets": [
+            safe_asset(Path(source_path), reference)
+            for reference in observation.get("assets", [])
+        ],
+    })
+    west, south, east, north = display.bounds
+    center = display.centroid
+    return {
+        "id": str(observation["id"]),
+        "revision": observation.get("revision", 1),
+        "project_id": project["id"],
+        "project_name": project.get("name", ""),
+        "type": observation.get("type", ""),
+        "subtype": observation.get("subtype", ""),
+        "observed_at_epoch_ms": observation.get("observedAtEpochMs"),
+        "source_crs": source_id,
+        "source_crs_wkt": source_crs.to_wkt(),
+        "source_wkb": original.wkb,
+        "source_vertices_json": json.dumps(observation["vertices"]),
+        "properties_json": json.dumps(properties, allow_nan=False),
+        "record_hash": digest(observation),
+        "transform_description": operation.description,
+        "min_lon": west,
+        "min_lat": south,
+        "max_lon": east,
+        "max_lat": north,
+        "center_lon": center.x,
+        "center_lat": center.y,
+        "geometry": display,
+    }
 
+
+def normalize_archive(root=CAPTURES, output=DERIVED):
+    latest, _, problems = load_latest(root)
+    rows = []
+    for item in latest:
+        try:
+            rows.append(normalize_observation(
+                item["observation"], item["project"], item["path"]
+            ))
+        except Exception as error:
+            problems.append({
+                "record_id": item["observation"].get("id"),
+                "snapshot": str(item["path"]),
+                "problem": str(error),
+            })
     output.mkdir(parents=True, exist_ok=True)
-    gdf.to_parquet(output / "observations.parquet")
-    return gdf
+    features = [{
+        "type": "Feature",
+        "id": row["id"],
+        "geometry": mapping(row["geometry"]),
+        "properties": json.loads(row["properties_json"]),
+    } for row in rows]
+    write_json(output / "observations.geojson", {
+        "type": "FeatureCollection", "features": features,
+    })
+    write_json(output / "review.json", problems)
+    write_json(output / "normalization.json", {
+        "generatedAt": utc_now(),
+        "recordCount": len(rows),
+        "problemCount": len(problems),
+        "displayCrs": "EPSG:4326",
+    })
+    if not rows:
+        raise ValueError(
+            "No valid observations. Review derived/review.json. "
+            "No existing Parquet file was replaced."
+        )
+    frame = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+    temporary = output / "observations.tmp.parquet"
+    frame.to_parquet(temporary, index=False, schema_version="1.0.0")
+    temporary.replace(output / "observations.parquet")
+    csv_frame = frame.drop(columns=["geometry", "source_wkb"]).copy()
+    csv_frame["geometry_wkt"] = frame.geometry.to_wkt()
+    csv_frame.to_csv(output / "observations.csv", index=False)
+    return frame
 
 
-def catalog_observations() -> "gpd.GeoDataFrame":
-    """Entry point for kwf_catalog.py table registration."""
-    _require_geo()
+def catalog_observations():
     path = DERIVED / "observations.parquet"
     if not path.exists():
-        raise FileNotFoundError(
-            f"{path} not found. Run: python kwf_geo.py normalize"
-        )
-    import geopandas as gpd
-    return gpd.read_parquet(path)
+        raise FileNotFoundError("Run kwf_geo.py normalize first")
+    return pl.scan_parquet(path)
+
+
+def vertical_unit_factor(reference):
+    if reference == "ellipsoidal":
+        return 1.0
+    crs = resolve_crs(reference)
+    if not crs.is_vertical:
+        raise ValueError("Expected a vertical CRS")
+    factor = crs.axis_info[0].unit_conversion_factor
+    if factor is None or factor <= 0:
+        raise ValueError("Unknown vertical units")
+    return factor
 
 
 def export_gcps(
-    root: Path,
-    output: Path,
-    project_id: str,
-    target_crs_id: str,
-    target_vcrs_id: str,
-    site_boundary_path: Path,
-    metric_crs_id: str,
-    minimum_points: int = 5,
-    minimum_hull_area_m2: float = 10.0,
-    minimum_separation_m: float = 1.0,
-) -> Path:
-    """
-    Export surveyed GCP observations for a project.
-    Requires explicit CRSs. Rejects coordinate-epoch input.
-    Does not guess CRS or height reference.
-    """
-    _require_geo()
-    import geopandas as gpd
-    import shapely.geometry as sg
-    import shapely.wkb as swkb
-
-    # Validate CRSs upfront
-    try:
-        target_crs = CRS.from_user_input(target_crs_id)
-    except Exception as e:
-        raise ValueError(f"Invalid target CRS '{target_crs_id}': {e}")
-
-    try:
-        target_vcrs = CRS.from_user_input(target_vcrs_id)
-    except Exception as e:
-        raise ValueError(f"Invalid target vertical CRS '{target_vcrs_id}': {e}")
-
-    try:
-        metric_crs = CRS.from_user_input(metric_crs_id)
-    except Exception as e:
-        raise ValueError(f"Invalid metric CRS '{metric_crs_id}': {e}")
-
-    # Reject coordinate-epoch input (time-dependent transforms not yet verified)
-    for crs_obj, name in [(target_crs, "target"), (target_vcrs, "vertical"), (metric_crs, "metric")]:
-        wkt = crs_obj.to_wkt()
-        if "coordinateEpoch" in wkt or "EPOCH" in wkt.upper():
-            raise ValueError(
-                f"Coordinate-epoch CRS not supported for {name} CRS. "
-                "Time-dependent transformations are not yet verified."
-            )
-
-    # Load site boundary
-    if not site_boundary_path.exists():
-        raise FileNotFoundError(f"Site boundary not found: {site_boundary_path}")
-    site_gdf = gpd.read_file(site_boundary_path)
-    site_boundary = site_gdf.geometry.union_all()
-
-    # Load all observations for this project
-    rows_and_paths, _ = load_latest(root)
-
-    gcps = []
-    for obs, path in rows_and_paths:
-        if obs.get("project_id", obs.get("projectId", "")) != project_id:
-            # Also check inside the file's project block
-            pass
-        if not obs.get("surveyed", False):
-            continue
-        if not obs.get("type", "").upper() == "GCP":
-            continue
-        vertices = obs.get("vertices", [])
-        if len(vertices) != 1:
-            continue
-        v = vertices[0]
-        if v.get("crs") != "EPSG:4326":
-            raise ValueError(
-                f"GCP {obs.get('id')} has non-WGS84 source coordinate. "
-                "Cannot export without normalization."
-            )
-        if v.get("vcrs", "unknown") == "unknown":
-            raise ValueError(
-                f"GCP {obs.get('id')} has unknown height reference. "
-                "Cannot export without a known vertical CRS."
-            )
-        pt = _vertex_to_point(v)
-        if pt is None:
-            continue
-        gcps.append((obs, v, pt))
-
-    if len(gcps) < minimum_points:
-        raise ValueError(
-            f"Insufficient GCPs: {len(gcps)} found, {minimum_points} required."
-        )
-
-    # Check spatial distribution using metric CRS
-    gdf_metric = gpd.GeoDataFrame(
-        [{"geometry": pt} for _, _, pt in gcps],
-        geometry="geometry",
-        crs="EPSG:4326"
-    ).to_crs(metric_crs_id)
-
-    from shapely.ops import unary_union
-    hull = gdf_metric.geometry.unary_union.convex_hull
-    if hull.area < minimum_hull_area_m2:
-        raise ValueError(
-            f"GCP hull area {hull.area:.1f} m² < minimum {minimum_hull_area_m2} m²."
-        )
-
-    # Check minimum separation
+    root, output, project_id, target_crs_id, target_vcrs_id,
+    site_boundary_path, metric_crs_id, minimum_points=5,
+    minimum_hull_area_m2=10.0, minimum_separation_m=1.0,
+):
+    latest, projects, problems = load_latest(root)
+    if problems:
+        raise ValueError("Resolve snapshot conflicts/loading errors before GCP export")
+    if project_id not in projects:
+        raise ValueError("Unknown project")
+    project = projects[project_id]
+    target = resolve_crs(target_crs_id, project)
+    metric = resolve_crs(metric_crs_id, project)
+    if not (target.is_geographic or target.is_projected):
+        raise ValueError("Target must be a horizontal CRS")
+    if not metric.is_projected or any(
+        abs(axis.unit_conversion_factor - 1.0) > 1e-12
+        for axis in metric.axis_info[:2]
+    ):
+        raise ValueError("Quality-check CRS must be projected in meters")
+    if target_vcrs_id == "unknown":
+        raise ValueError("Target height reference cannot be unknown")
+    height_factor = vertical_unit_factor(target_vcrs_id)
+    boundary_json = read_json(site_boundary_path)
+    if boundary_json.get("crs"):
+        raise ValueError("Boundary must be RFC 7946 WGS 84 GeoJSON")
+    boundary = shape(
+        boundary_json["geometry"]
+        if boundary_json.get("type") == "Feature"
+        else boundary_json
+    )
+    if (
+        boundary.geom_type not in {"Polygon", "MultiPolygon"}
+        or not boundary.is_valid or boundary.is_empty
+    ):
+        raise ValueError("Invalid site boundary")
+    bounds = boundary.bounds
+    if not (
+        -180 <= bounds[0] <= bounds[2] <= 180
+        and -90 <= bounds[1] <= bounds[3] <= 90
+    ):
+        raise ValueError("Boundary must use WGS 84 coordinates")
+    candidates = []
     warnings = []
-    coords_metric = [(g.x, g.y) for g in gdf_metric.geometry]
-    for i in range(len(coords_metric)):
-        for j in range(i+1, len(coords_metric)):
-            dx = coords_metric[i][0] - coords_metric[j][0]
-            dy = coords_metric[i][1] - coords_metric[j][1]
-            dist = (dx**2 + dy**2)**0.5
-            if dist < minimum_separation_m:
-                warnings.append(
-                    f"GCPs {gcps[i][0].get('id')} and {gcps[j][0].get('id')} "
-                    f"are {dist:.2f} m apart (< {minimum_separation_m} m minimum)."
-                )
-
-    # Build target CRS (compound if needed)
-    target_horizontal = CRS.from_user_input(target_crs_id)
-
-    metadata = []
-    for obs, v, pt in gcps:
-        metadata.append({
-            "id": obs.get("id"),
-            "gcpLabel": obs.get("gcpLabel", obs.get("gcp_label")),
-            "revision": obs.get("revision", 1),
-            "sourceCrs": v.get("crs"),
-            "sourceX": v.get("x"),
-            "sourceY": v.get("y"),
-            "sourceZ": v.get("z"),
-            "sourceVcrs": v.get("vcrs"),
-            "horizontalAccuracyM": v.get("horizontalAccuracyM"),
-            "verticalAccuracyM": v.get("verticalAccuracyM"),
-            "surveyReference": obs.get("surveyReference", obs.get("survey_reference")),
+    for item in latest:
+        observation = item["observation"]
+        if item["project"]["id"] != project_id:
+            continue
+        if str(observation.get("type", "")).upper() != "GCP":
+            continue
+        if observation.get("shape") != "Point" or observation.get("surveyed") is not True:
+            warnings.append({"id": observation["id"], "reason": "Not a surveyed point"})
+            continue
+        candidates.append(item)
+    if len(candidates) < minimum_points:
+        raise ValueError(
+            f"Project policy requires at least {minimum_points} surveyed GCPs"
+        )
+    labels = set()
+    exported = []
+    metric_points = []
+    provenance = []
+    for item in candidates:
+        observation = item["observation"]
+        label = str(observation.get("gcpLabel") or "").strip()
+        if not label or label.casefold() in labels:
+            raise ValueError("Missing or duplicate GCP label")
+        labels.add(label.casefold())
+        if not observation.get("surveyReference"):
+            raise ValueError(f"{label}: survey reference required")
+        if len(observation.get("vertices", [])) != 1:
+            raise ValueError(f"{label}: exactly one source vertex required")
+        vertex = observation["vertices"][0]
+        if vertex.get("source") not in {"manual", "survey"}:
+            raise ValueError(f"{label}: invalid survey source")
+        if vertex.get("coordinateEpoch") is not None:
+            raise ValueError(f"{label}: epoch-dependent transformation not implemented")
+        if vertex.get("vcrs") != target_vcrs_id:
+            raise ValueError(
+                f"{label}: vertical transformation is required but is not "
+                "implemented in this release. Do not relabel the height."
+            )
+        x = finite(vertex.get("x"), f"{label} x")
+        y = finite(vertex.get("y"), f"{label} y")
+        z = finite(vertex.get("z"), f"{label} z")
+        h_accuracy = finite(vertex.get("horizontalAccuracyM"), "Horizontal accuracy")
+        v_accuracy = finite(vertex.get("verticalAccuracyM"), "Vertical accuracy")
+        if h_accuracy < 0 or v_accuracy < 0:
+            raise ValueError("Accuracy cannot be negative")
+        source = resolve_crs(vertex["crs"], project)
+        if (
+            target_vcrs_id == "ellipsoidal"
+            and not source.geodetic_crs.equals(target.geodetic_crs)
+        ):
+            raise ValueError(
+                "Ellipsoidal heights across different horizontal datums "
+                "require a verified 3D transformation"
+            )
+        display_operation = transformer(source, CRS.from_epsg(4326))
+        longitude, latitude = display_operation.transform(x, y, errcheck=True)
+        if not boundary.covers(Point(longitude, latitude)):
+            raise ValueError(f"{label}: outside site boundary")
+        if not in_area(longitude, latitude, target):
+            raise ValueError(f"{label}: outside target CRS area")
+        if not in_area(longitude, latitude, metric):
+            raise ValueError(f"{label}: outside metric CRS area")
+        operation = transformer(source, target)
+        tx, ty = operation.transform(x, y, errcheck=True)
+        mx, my = transformer(source, metric).transform(x, y, errcheck=True)
+        for value in (tx, ty, mx, my):
+            finite(value, "Transformed coordinate")
+        metric_points.append(Point(mx, my))
+        exported.append({
+            "name": label, "x": tx, "y": ty, "z": z,
+            "h_accuracy": h_accuracy,
+            "v_accuracy": v_accuracy / height_factor,
+            "longitude": longitude, "latitude": latitude,
+            "id": observation["id"],
         })
-
-    directory = output / project_id
-    directory.mkdir(parents=True, exist_ok=True)
-
-    provenance = {
-        "schemaVersion": 1,
+        provenance.append({
+            "id": observation["id"],
+            "revision": observation.get("revision", 1),
+            "label": label,
+            "sourceCrs": vertex["crs"],
+            "sourceCoordinates": [x, y, z],
+            "sourceHeightReference": vertex["vcrs"],
+            "surveyReference": observation["surveyReference"],
+            "transformation": operation.description,
+            "verticalTransformation": "Identity: matching height references",
+        })
+    if MultiPoint(metric_points).convex_hull.area < minimum_hull_area_m2:
+        raise ValueError("GCP layout fails configured hull-area threshold")
+    for index, point in enumerate(metric_points):
+        if any(point.distance(other) < minimum_separation_m
+               for other in metric_points[index + 1:]):
+            raise ValueError("GCPs fail configured separation threshold")
+    export_id = str(uuid.uuid4())
+    directory = output / export_id
+    directory.mkdir(parents=True, exist_ok=False)
+    with (directory / "gcp_ground.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["name", "x", "y", "z", "h_accuracy", "v_accuracy"])
+        precision = 9 if target.is_geographic else 3
+        for point in exported:
+            writer.writerow([
+                point["name"], f'{point["x"]:.{precision}f}',
+                f'{point["y"]:.{precision}f}', f'{point["z"]:.3f}',
+                f'{point["h_accuracy"]:.3f}', f'{point["v_accuracy"]:.3f}',
+            ])
+    write_json(directory / "gcp_points.geojson", {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature", "id": point["id"],
+            "geometry": {
+                "type": "Point",
+                "coordinates": [point["longitude"], point["latitude"]],
+            },
+            "properties": {"name": point["name"]},
+        } for point in exported],
+    })
+    write_json(directory / "gcp_export.json", {
+        "exportId": export_id,
         "projectId": project_id,
+        "exportedAt": utc_now(),
         "targetCrs": target_crs_id,
-        "targetVcrs": target_vcrs_id,
-        "targetAxisUnits": [
-            axis.unit_name for axis in target_crs.axis_info
-        ],
-        "horizontalAccuracyUnit": (
-            "meter" if target_horizontal.is_geographic
-            else target_horizontal.axis_info[0].unit_name
+        "targetCrsWkt": target.to_wkt(),
+        "targetHeightReference": target_vcrs_id,
+        "horizontalAccuracyUnit": "meter",
+        "verticalAccuracyUnit": (
+            "meter" if target_vcrs_id == "ellipsoidal"
+            else resolve_crs(target_vcrs_id).axis_info[0].unit_name
         ),
-        "verticalAccuracyUnit": target_vcrs.axis_info[0].unit_name if target_vcrs.axis_info else "meter",
-        "qualityCheckCrs": metric_crs_id,
-        "policy": {
-            "minimumPoints": minimum_points,
-            "minimumHullAreaM2": minimum_hull_area_m2,
-            "minimumSeparationM": minimum_separation_m,
-        },
-        "points": metadata,
+        "points": provenance,
         "warnings": warnings,
         "imagePixelCorrespondencesIncluded": False,
-    }
-
-    (directory / "gcp_export.json").write_text(
-        json.dumps(provenance, indent=2),
-        encoding="utf-8",
-    )
-
+        "verticalConversionSupported": False,
+    })
     return directory
 
 
 def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-
     normalize = commands.add_parser("normalize")
     normalize.add_argument("--captures", type=Path, default=CAPTURES)
     normalize.add_argument("--output", type=Path, default=DERIVED)
-
     gcps = commands.add_parser("gcps")
     gcps.add_argument("--captures", type=Path, default=CAPTURES)
     gcps.add_argument("--output", type=Path, default=DERIVED / "gcp-exports")
@@ -434,27 +729,14 @@ def main():
     gcps.add_argument("--target-vcrs", required=True)
     gcps.add_argument("--site-boundary", type=Path, required=True)
     gcps.add_argument("--metric-crs", required=True)
-    gcps.add_argument("--minimum-points", type=int, default=5)
-    gcps.add_argument("--minimum-hull-area-m2", type=float, default=10.0)
-    gcps.add_argument("--minimum-separation-m", type=float, default=1.0)
-
-    arguments = parser.parse_args()
-
-    if arguments.command == "normalize":
-        frame = normalize_archive(arguments.captures, arguments.output)
-        print(f"Normalized {len(frame)} unique observations")
+    args = parser.parse_args()
+    if args.command == "normalize":
+        frame = normalize_archive(args.captures, args.output)
+        print(f"Normalized {len(frame)} observations")
     else:
         result = export_gcps(
-            root=arguments.captures,
-            output=arguments.output,
-            project_id=arguments.project_id,
-            target_crs_id=arguments.target_crs,
-            target_vcrs_id=arguments.target_vcrs,
-            site_boundary_path=arguments.site_boundary,
-            metric_crs_id=arguments.metric_crs,
-            minimum_points=arguments.minimum_points,
-            minimum_hull_area_m2=arguments.minimum_hull_area_m2,
-            minimum_separation_m=arguments.minimum_separation_m,
+            args.captures, args.output, args.project_id, args.target_crs,
+            args.target_vcrs, args.site_boundary, args.metric_crs,
         )
         print(result)
 
