@@ -220,6 +220,12 @@ def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
         "in",
         "not in",
     ):
+        if (
+            f.operator in ("in", "not in")
+            and isinstance(f.value, (list, tuple))
+            and not f.value
+        ):
+            return "false" if f.operator == "in" else "true"
         value_str = value_to_sql_expr(f.value, column_type)
         return f"({column} {f.operator} {value_str})"
 
@@ -241,6 +247,9 @@ def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
         else:
             assert isinstance(f.value, list | tuple)
             values = list(f.value)
+
+        if not values:
+            return "false" if f.operator == "includes any" else "true"
 
         # NOTE: for includes any/all, we join multiple array_contains with or/and
         value_exprs = (
