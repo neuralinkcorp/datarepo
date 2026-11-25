@@ -151,6 +151,36 @@ class TestParquetTable:
         assert sorted(result["implant_id"].to_list()) == expected_implant_ids
 
     @pytest.mark.parametrize(
+        ("value", "expected_names"),
+        [
+            ("ab", ["abc"]),
+            # Regex metacharacters are matched literally
+            ("a.b", ["a.b"]),
+            ("c(", ["c(1)"]),
+            ("[x", ["[x]"]),
+        ],
+    )
+    def test_read_contains_is_literal(
+        self,
+        tmp_path: Path,
+        value: str,
+        expected_names: list[str],
+    ):
+        table_dir = tmp_path / "contains"
+        table_dir.mkdir(parents=True, exist_ok=True)
+        table_path = table_dir / "test.parquet"
+
+        pl.DataFrame({"name": ["a.b", "axb", "abc", "c(1)", "[x]"]}).write_parquet(
+            table_path
+        )
+
+        table = ParquetTable(name="contains", uri=str(table_path), partitioning=[])
+
+        result = table(filters=[Filter("name", "contains", value)]).collect()
+
+        assert sorted(result["name"].to_list()) == expected_names
+
+    @pytest.mark.parametrize(
         (
             "filters",
             "expected",

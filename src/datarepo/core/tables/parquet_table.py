@@ -138,7 +138,7 @@ def _filter_to_expr(filter: Filter) -> pl.Expr:
     elif filter.operator == "is not null":
         return pl.col(filter.column).is_not_null()
     elif filter.operator == "contains":
-        return pl.col(filter.column).str.contains(filter.value)
+        return pl.col(filter.column).str.contains(filter.value, literal=True)
     elif filter.operator == "includes":
         return pl.col(filter.column).list.contains(filter.value)
     elif filter.operator == "includes any":

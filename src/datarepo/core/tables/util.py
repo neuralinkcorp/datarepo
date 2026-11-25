@@ -228,9 +228,14 @@ def filter_to_sql_expr(schema: pa.Schema, f: Filter) -> str:
 
     elif f.operator == "contains":
         assert isinstance(f.value, str)
-        escaped_str = escape_str_for_sql(f.value)
+        # Match the value as a literal substring: escape the LIKE wildcards % and _
+        # (and the escape character itself) before quoting it as a SQL string.
+        like_value = (
+            f.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        escaped_str = escape_str_for_sql(like_value)
         like_str = f"'%{escaped_str}%'"
-        return f"({column} like {like_str})"
+        return f"({column} like {like_str} escape '\\')"
 
     elif f.operator in ("includes", "includes any", "includes all"):
         assert pa.types.is_list(column_type) or pa.types.is_large_list(column_type)
