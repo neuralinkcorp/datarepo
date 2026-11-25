@@ -345,16 +345,37 @@ class DeltalakeTable(TableProtocol):
         extra_column_names = set(expr.meta.output_name() for expr in extra_col_exprs)
 
         columns_to_read = None
+        query_columns = None
         unique_column_names = set(self.unique_columns or [])
         if columns:
-            columns_to_read = list(
-                (set(columns) | unique_column_names) - extra_column_names
-            )
+            requested_physical_columns = (
+                set(columns) | unique_column_names
+            ) - extra_column_names
+            if any(expr.meta.has_multiple_outputs() for expr in extra_col_exprs):
+                query_columns = list(
+                    requested_physical_columns
+                    | {field.name for field in dt.schema().fields}
+                )
+            else:
+                expression_inputs = {
+                    name
+                    for expr in extra_col_exprs
+                    for name in expr.meta.root_names()
+                    if name in schema.names
+                }
+                columns_to_read = list(requested_physical_columns | expression_inputs)
+                query_columns = list(requested_physical_columns)
+                if expression_inputs:
+                    stored_columns = {field.name for field in dt.schema().fields}
+                    query_columns = list(
+                        requested_physical_columns
+                        | (expression_inputs & stored_columns)
+                    )
 
         # TODO(peter): consider a sql builder for more complex queries?
         select_cols = (
-            ", ".join([f'"{col}"' for col in columns_to_read])
-            if columns_to_read
+            ", ".join('"' + col.replace('"', '""') + '"' for col in query_columns)
+            if query_columns
             else "*"
         )
         condition = f"WHERE {predicate_str}" if predicate_str else ""
