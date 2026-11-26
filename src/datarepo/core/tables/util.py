@@ -324,18 +324,24 @@ def format_value_for_sql(value: Any) -> str:
         # string to DateTime, the same reason value_to_sql_expr (DataFusion)
         # wraps a date value in DATE '...' above.
         #
-        # A tz-aware value is converted to UTC and formatted naive: ClickHouse's
-        # DateTime literal syntax has no offset suffix, so a value.isoformat()
-        # string with +HH:MM still attached would fail to parse as one.
-        # Microsecond precision needs toDateTime64(..., 6), since toDateTime
-        # itself is second-precision only and silently truncates otherwise.
-        if value.tzinfo is not None:
+        # A tz-aware value is converted to UTC and the literal is given an
+        # explicit 'UTC' timezone argument: ClickHouse interprets a
+        # timezone-less DateTime literal in the server/session timezone, not
+        # UTC, so a naive 'UTC'-converted literal would be silently
+        # reinterpreted as server-local on a non-UTC server. A naive value
+        # has no timezone to convert from, so it is left without a timezone
+        # argument. Microsecond precision needs toDateTime64(..., 6), since
+        # toDateTime itself is second-precision only and silently truncates
+        # otherwise.
+        is_aware = value.tzinfo is not None
+        if is_aware:
             value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        tz_arg = ", 'UTC'" if is_aware else ""
         if value.microsecond:
             escaped = value.isoformat(sep=" ").replace("'", "''")
-            return f"toDateTime64('{escaped}', 6)"
+            return f"toDateTime64('{escaped}', 6{tz_arg})"
         escaped = value.isoformat(sep=" ").replace("'", "''")
-        return f"toDateTime('{escaped}')"
+        return f"toDateTime('{escaped}'{tz_arg})"
     elif isinstance(value, date):
         escaped = value.isoformat().replace("'", "''")
         return f"toDate('{escaped}')"

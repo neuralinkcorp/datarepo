@@ -221,11 +221,18 @@ def test_datetime_value_is_cast_not_a_bare_string(table):
     )
 
 
-def test_utc_aware_datetime_is_cast_as_naive_utc(table):
-    """A UTC-aware datetime formats the same as its naive equivalent."""
+def test_utc_aware_datetime_is_cast_with_explicit_utc(table):
+    """A UTC-aware datetime is cast with an explicit 'UTC' timezone argument.
+
+    ClickHouse interprets a timezone-less DateTime literal in the
+    server/session timezone, not UTC, so the argument must be explicit even
+    when the value's own offset happens to already be UTC.
+    """
     value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
     query = table._build_query([Filter("x", "=", value)])
-    assert where_clause(query) == "(`x` = toDateTime('2024-01-01 12:30:00'))"
+    assert where_clause(query) == (
+        "(`x` = toDateTime('2024-01-01 12:30:00', 'UTC'))"
+    )
 
 
 def test_non_utc_aware_datetime_is_converted_to_utc(table):
@@ -239,7 +246,9 @@ def test_non_utc_aware_datetime_is_converted_to_utc(table):
     ist = timezone(timedelta(hours=5, minutes=30))
     value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=ist)
     query = table._build_query([Filter("x", "=", value)])
-    assert where_clause(query) == "(`x` = toDateTime('2024-01-01 07:00:00'))"
+    assert where_clause(query) == (
+        "(`x` = toDateTime('2024-01-01 07:00:00', 'UTC'))"
+    )
 
 
 def test_microsecond_datetime_uses_todatetime64(table):
@@ -256,10 +265,10 @@ def test_microsecond_datetime_uses_todatetime64(table):
 
 
 def test_timezone_aware_microsecond_datetime_converts_and_widens(table):
-    """Both the timezone conversion and the toDateTime64 widening apply together."""
+    """The timezone conversion, explicit 'UTC' argument, and toDateTime64 widening all apply together."""
     ist = timezone(timedelta(hours=5, minutes=30))
     value = datetime(2024, 1, 1, 12, 30, 0, 123456, tzinfo=ist)
     query = table._build_query([Filter("x", "=", value)])
     assert where_clause(query) == (
-        "(`x` = toDateTime64('2024-01-01 07:00:00.123456', 6))"
+        "(`x` = toDateTime64('2024-01-01 07:00:00.123456', 6, 'UTC'))"
     )
