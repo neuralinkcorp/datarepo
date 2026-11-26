@@ -1,5 +1,6 @@
 """Regression tests for ClickHouse filter predicates and existing grouping rules."""
 
+from datetime import date, datetime
 from typing import cast
 from unittest.mock import patch
 
@@ -183,3 +184,38 @@ def test_includes_any_all_do_not_mangle_multiple_values(table):
     all_query = table._build_query([Filter("x", "includes all", ["cat", "dog"])])
     assert where_clause(any_query) == "(hasAny(`x`, ['cat', 'dog']))"
     assert where_clause(all_query) == "(hasAll(`x`, ['cat', 'dog']))"
+
+
+def test_date_value_is_cast_not_a_bare_string(table):
+    """A date filter value is wrapped in toDate(...), not formatted as a bare string.
+
+    ClickHouse array functions (has/hasAny/hasAll) require the array literal's
+    type to match the column's element type exactly and do not cast a plain
+    string to Date, so a bare '2024-01-01' against an Array(Date) column would
+    raise a type error at query time. The comparison operators tolerate a bare
+    string too, but toDate(...) is correct there as well.
+    """
+    eq_query = table._build_query([Filter("x", "=", date(2024, 1, 1))])
+    includes_query = table._build_query([Filter("x", "includes", date(2024, 1, 1))])
+    any_query = table._build_query(
+        [Filter("x", "includes any", [date(2024, 1, 1), date(2024, 1, 2)])]
+    )
+    assert where_clause(eq_query) == "(`x` = toDate('2024-01-01'))"
+    assert where_clause(includes_query) == "(has(`x`, toDate('2024-01-01')))"
+    assert where_clause(any_query) == (
+        "(hasAny(`x`, [toDate('2024-01-01'), toDate('2024-01-02')]))"
+    )
+
+
+def test_datetime_value_is_cast_not_a_bare_string(table):
+    """A datetime filter value is wrapped in toDateTime(...), same reasoning as dates."""
+    eq_query = table._build_query(
+        [Filter("x", "=", datetime(2024, 1, 1, 12, 30, 0))]
+    )
+    includes_query = table._build_query(
+        [Filter("x", "includes", datetime(2024, 1, 1, 12, 30, 0))]
+    )
+    assert where_clause(eq_query) == "(`x` = toDateTime('2024-01-01 12:30:00'))"
+    assert where_clause(includes_query) == (
+        "(has(`x`, toDateTime('2024-01-01 12:30:00')))"
+    )

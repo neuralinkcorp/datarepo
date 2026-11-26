@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date, datetime
 from enum import Enum
 from typing import Any, NamedTuple, Optional
 
@@ -317,6 +318,16 @@ def format_value_for_sql(value: Any) -> str:
         return "1" if value else "0"
     elif isinstance(value, (int, float)):
         return str(value)
+    elif isinstance(value, datetime):
+        # ClickHouse array functions (has/hasAny/hasAll) require the literal's
+        # type to match the array element type exactly and do not cast a bare
+        # string to DateTime, the same reason value_to_sql_expr (DataFusion)
+        # wraps a date value in DATE '...' above.
+        escaped = value.isoformat(sep=" ").replace("'", "''")
+        return f"toDateTime('{escaped}')"
+    elif isinstance(value, date):
+        escaped = value.isoformat().replace("'", "''")
+        return f"toDate('{escaped}')"
     elif isinstance(value, (list, tuple)):
         return ", ".join(format_value_for_sql(v) for v in value)
     else:
