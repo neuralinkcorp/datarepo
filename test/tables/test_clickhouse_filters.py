@@ -1,5 +1,6 @@
 """Regression tests for ClickHouse filter predicates and existing grouping rules."""
 
+from datetime import date, datetime, timedelta, timezone
 from typing import cast
 from unittest.mock import patch
 
@@ -183,3 +184,91 @@ def test_includes_any_all_do_not_mangle_multiple_values(table):
     all_query = table._build_query([Filter("x", "includes all", ["cat", "dog"])])
     assert where_clause(any_query) == "(hasAny(`x`, ['cat', 'dog']))"
     assert where_clause(all_query) == "(hasAll(`x`, ['cat', 'dog']))"
+
+
+def test_date_value_is_cast_not_a_bare_string(table):
+    """A date filter value is wrapped in toDate(...), not formatted as a bare string.
+
+    ClickHouse array functions (has/hasAny/hasAll) require the array literal's
+    type to match the column's element type exactly and do not cast a plain
+    string to Date, so a bare '2024-01-01' against an Array(Date) column would
+    raise a type error at query time. The comparison operators tolerate a bare
+    string too, but toDate(...) is correct there as well.
+    """
+    eq_query = table._build_query([Filter("x", "=", date(2024, 1, 1))])
+    includes_query = table._build_query([Filter("x", "includes", date(2024, 1, 1))])
+    any_query = table._build_query(
+        [Filter("x", "includes any", [date(2024, 1, 1), date(2024, 1, 2)])]
+    )
+    assert where_clause(eq_query) == "(`x` = toDate('2024-01-01'))"
+    assert where_clause(includes_query) == "(has(`x`, toDate('2024-01-01')))"
+    assert where_clause(any_query) == (
+        "(hasAny(`x`, [toDate('2024-01-01'), toDate('2024-01-02')]))"
+    )
+
+
+def test_datetime_value_is_cast_not_a_bare_string(table):
+    """A datetime filter value is wrapped in toDateTime(...), same reasoning as dates."""
+    eq_query = table._build_query(
+        [Filter("x", "=", datetime(2024, 1, 1, 12, 30, 0))]
+    )
+    includes_query = table._build_query(
+        [Filter("x", "includes", datetime(2024, 1, 1, 12, 30, 0))]
+    )
+    assert where_clause(eq_query) == "(`x` = toDateTime('2024-01-01 12:30:00'))"
+    assert where_clause(includes_query) == (
+        "(has(`x`, toDateTime('2024-01-01 12:30:00')))"
+    )
+
+
+def test_utc_aware_datetime_is_cast_with_explicit_utc(table):
+    """A UTC-aware datetime is cast with an explicit 'UTC' timezone argument.
+
+    ClickHouse interprets a timezone-less DateTime literal in the
+    server/session timezone, not UTC, so the argument must be explicit even
+    when the value's own offset happens to already be UTC.
+    """
+    value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime('2024-01-01 12:30:00', 'UTC'))"
+    )
+
+
+def test_non_utc_aware_datetime_is_converted_to_utc(table):
+    """A non-UTC-aware datetime is converted to UTC before formatting.
+
+    ClickHouse's DateTime literal syntax has no offset suffix, so the value
+    must be converted to UTC first: a bare '12:30:00+05:30' literal would
+    either fail to parse or be silently misread as UTC 12:30:00, five and a
+    half hours off from the intended instant.
+    """
+    ist = timezone(timedelta(hours=5, minutes=30))
+    value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=ist)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime('2024-01-01 07:00:00', 'UTC'))"
+    )
+
+
+def test_microsecond_datetime_uses_todatetime64(table):
+    """A microsecond-precision datetime uses toDateTime64(..., 6), not toDateTime.
+
+    toDateTime is second-precision only and would silently drop the fractional
+    seconds (or fail to parse a literal that includes them).
+    """
+    value = datetime(2024, 1, 1, 12, 30, 0, 123456)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime64('2024-01-01 12:30:00.123456', 6))"
+    )
+
+
+def test_timezone_aware_microsecond_datetime_converts_and_widens(table):
+    """The timezone conversion, explicit 'UTC' argument, and toDateTime64 widening all apply together."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    value = datetime(2024, 1, 1, 12, 30, 0, 123456, tzinfo=ist)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime64('2024-01-01 07:00:00.123456', 6, 'UTC'))"
+    )
