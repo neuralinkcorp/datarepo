@@ -1,6 +1,6 @@
 """Regression tests for ClickHouse filter predicates and existing grouping rules."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import cast
 from unittest.mock import patch
 
@@ -218,4 +218,48 @@ def test_datetime_value_is_cast_not_a_bare_string(table):
     assert where_clause(eq_query) == "(`x` = toDateTime('2024-01-01 12:30:00'))"
     assert where_clause(includes_query) == (
         "(has(`x`, toDateTime('2024-01-01 12:30:00')))"
+    )
+
+
+def test_utc_aware_datetime_is_cast_as_naive_utc(table):
+    """A UTC-aware datetime formats the same as its naive equivalent."""
+    value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == "(`x` = toDateTime('2024-01-01 12:30:00'))"
+
+
+def test_non_utc_aware_datetime_is_converted_to_utc(table):
+    """A non-UTC-aware datetime is converted to UTC before formatting.
+
+    ClickHouse's DateTime literal syntax has no offset suffix, so the value
+    must be converted to UTC first: a bare '12:30:00+05:30' literal would
+    either fail to parse or be silently misread as UTC 12:30:00, five and a
+    half hours off from the intended instant.
+    """
+    ist = timezone(timedelta(hours=5, minutes=30))
+    value = datetime(2024, 1, 1, 12, 30, 0, tzinfo=ist)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == "(`x` = toDateTime('2024-01-01 07:00:00'))"
+
+
+def test_microsecond_datetime_uses_todatetime64(table):
+    """A microsecond-precision datetime uses toDateTime64(..., 6), not toDateTime.
+
+    toDateTime is second-precision only and would silently drop the fractional
+    seconds (or fail to parse a literal that includes them).
+    """
+    value = datetime(2024, 1, 1, 12, 30, 0, 123456)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime64('2024-01-01 12:30:00.123456', 6))"
+    )
+
+
+def test_timezone_aware_microsecond_datetime_converts_and_widens(table):
+    """Both the timezone conversion and the toDateTime64 widening apply together."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    value = datetime(2024, 1, 1, 12, 30, 0, 123456, tzinfo=ist)
+    query = table._build_query([Filter("x", "=", value)])
+    assert where_clause(query) == (
+        "(`x` = toDateTime64('2024-01-01 07:00:00.123456', 6))"
     )

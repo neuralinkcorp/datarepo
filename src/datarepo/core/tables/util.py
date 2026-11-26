@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, NamedTuple, Optional
 
@@ -323,6 +323,17 @@ def format_value_for_sql(value: Any) -> str:
         # type to match the array element type exactly and do not cast a bare
         # string to DateTime, the same reason value_to_sql_expr (DataFusion)
         # wraps a date value in DATE '...' above.
+        #
+        # A tz-aware value is converted to UTC and formatted naive: ClickHouse's
+        # DateTime literal syntax has no offset suffix, so a value.isoformat()
+        # string with +HH:MM still attached would fail to parse as one.
+        # Microsecond precision needs toDateTime64(..., 6), since toDateTime
+        # itself is second-precision only and silently truncates otherwise.
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        if value.microsecond:
+            escaped = value.isoformat(sep=" ").replace("'", "''")
+            return f"toDateTime64('{escaped}', 6)"
         escaped = value.isoformat(sep=" ").replace("'", "''")
         return f"toDateTime('{escaped}')"
     elif isinstance(value, date):
